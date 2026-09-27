@@ -333,6 +333,62 @@ rm -rf "$SCRIPT_DIR"
 SCRIPT_DIR="$_ORIG_SCRIPT_DIR"
 
 # ---------------------------------------------------------------------------
+# Section 10: CLI slot-selection parsing (offline, no router)
+#
+# ParseSlotSelection() lives inside vpnmgr.sh, which can't be sourced
+# directly for testing: with no args it launches the interactive MainMenu
+# (blocks on stdin), and with any arg it falls into the real command
+# dispatcher, which touches nvram and other router-only commands. Instead,
+# extract just ParseSlotSelection() and its Validate_Number() dependency
+# and source only that.
+# ---------------------------------------------------------------------------
+section "10. CLI slot-selection parsing (offline)"
+
+_PSS_EXTRACT="$(mktemp)"
+sed -n '/^Validate_Number(){/,/^}/p' "${REPO_ROOT}/vpnmgr.sh" > "$_PSS_EXTRACT"
+sed -n '/^ParseSlotSelection(){/,/^}/p' "${REPO_ROOT}/vpnmgr.sh" >> "$_PSS_EXTRACT"
+# shellcheck source=/dev/null
+. "$_PSS_EXTRACT"
+rm -f "$_PSS_EXTRACT"
+
+assert_slots() {
+    local desc="$1" input="$2" expected="$3"
+    GLOBAL_VPN_SLOTS=""
+    if ParseSlotSelection "$input"; then
+        if [[ "$GLOBAL_VPN_SLOTS" == "$expected" ]]; then
+            pass "$desc"
+        else
+            fail "$desc (expected slots '${expected}', got '${GLOBAL_VPN_SLOTS}')"
+        fi
+    else
+        fail "$desc (expected slots '${expected}', but input was rejected)"
+    fi
+}
+
+assert_rejected() {
+    local desc="$1" input="$2"
+    GLOBAL_VPN_SLOTS=""
+    if ParseSlotSelection "$input"; then
+        fail "$desc (expected rejection, got slots '${GLOBAL_VPN_SLOTS}')"
+    else
+        pass "$desc"
+    fi
+}
+
+assert_slots "single slot" "3" "3"
+assert_slots "range" "1-5" "1 2 3 4 5"
+assert_slots "comma list, preserves entry order" "1,4,2" "1 4 2"
+assert_slots "mixed range + comma" "1-3,5" "1 2 3 5"
+assert_slots "dedups in first-occurrence order" "1,1,2" "1 2"
+assert_rejected "empty input"          ""
+assert_rejected "non-numeric input"    "abc"
+assert_rejected "below range (0)"      "0"
+assert_rejected "above range (6)"      "6"
+assert_rejected "reversed range"       "5-2"
+assert_rejected "dangling range start" "-3"
+assert_rejected "dangling range end"   "3-"
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 TOTAL=$((PASS + FAIL))
