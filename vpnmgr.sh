@@ -487,6 +487,52 @@ Validate_Number(){
 	fi
 }
 
+# ParseSlotSelection raw_input
+# Accepts a single slot ("3"), a range ("1-5"), or a comma list ("1,4,2"),
+# any combination thereof. Validates 1-5 bounds, rejects reversed ranges,
+# dedupes in first-occurrence order. On success sets $GLOBAL_VPN_SLOTS to
+# a space-separated, ordered, deduped list and returns 0. Returns 1 on
+# any malformed/out-of-range input, leaving $GLOBAL_VPN_SLOTS unset.
+ParseSlotSelection(){
+	_pss_raw="$1"
+	[ -z "$_pss_raw" ] && return 1
+	case "$_pss_raw" in *[!0-9,-]*) return 1 ;; esac
+
+	_pss_result=""
+	for _pss_tok in $(printf '%s' "$_pss_raw" | sed 's/,/ /g'); do
+		case "$_pss_tok" in
+			*-*)
+				_pss_lo="${_pss_tok%%-*}"; _pss_hi="${_pss_tok##*-}"
+				[ -z "$_pss_lo" ] || [ -z "$_pss_hi" ] && return 1
+				Validate_Number "$_pss_lo" && Validate_Number "$_pss_hi" || return 1
+				{ [ "$_pss_lo" -lt 1 ] || [ "$_pss_lo" -gt 5 ] || [ "$_pss_hi" -lt 1 ] || [ "$_pss_hi" -gt 5 ]; } && return 1
+				[ "$_pss_lo" -gt "$_pss_hi" ] && return 1
+				_pss_n="$_pss_lo"
+				while [ "$_pss_n" -le "$_pss_hi" ]; do
+					_pss_result="$_pss_result $_pss_n"
+					_pss_n=$((_pss_n + 1))
+				done
+			;;
+			*)
+				Validate_Number "$_pss_tok" || return 1
+				{ [ "$_pss_tok" -lt 1 ] || [ "$_pss_tok" -gt 5 ]; } && return 1
+				_pss_result="$_pss_result $_pss_tok"
+			;;
+		esac
+	done
+
+	_pss_deduped=""
+	for _pss_n in $_pss_result; do
+		case " $_pss_deduped " in
+			*" $_pss_n "*) ;;
+			*) _pss_deduped="$_pss_deduped $_pss_n" ;;
+		esac
+	done
+	[ -z "$_pss_deduped" ] && return 1
+	GLOBAL_VPN_SLOTS="${_pss_deduped# }"
+	return 0
+}
+
 Conf_FromSettings(){
 	SETTINGSFILE="/jffs/addons/custom_settings.txt"
 	TMPFILE="/tmp/vpnmgr_settings.txt"
@@ -1107,36 +1153,41 @@ Shortcut_Script(){
 }
 
 SetVPNClient(){
+	vpnpreset="$2"
 	ScriptHeader
 	ListVPNClients false "$1"
 	printf "Choose options as follows:\\n"
 	printf "    - VPN client (pick from list)\\n"
 	printf "\\n"
 	printf "${BOLD}#########################################################${CLEARFORMAT}\\n"
-	
+
 	exitmenu=""
 	vpnnum=""
-	
-	while true; do
-		printf "\\n${BOLD}Please enter the VPN client number (pick from list):${CLEARFORMAT}  "
-		read -r vpn_choice
-		
-		if [ "$vpn_choice" = "e" ]; then
-			exitmenu="exit"
-			break
-		elif ! Validate_Number "$vpn_choice"; then
-			printf "\\n\\e[31mPlease enter a valid number (pick from list)${CLEARFORMAT}\\n"
-		else
-			if [ "$vpn_choice" -lt 1 ] || [ "$vpn_choice" -gt 5 ]; then
-				printf "\\n\\e[31mPlease enter a number between 1 and 5${CLEARFORMAT}\\n"
-			else
-				vpnnum="$vpn_choice"
-				printf "\\n"
+
+	if [ -n "$vpnpreset" ]; then
+		vpnnum="$vpnpreset"
+	else
+		while true; do
+			printf "\\n${BOLD}Please enter the VPN client number (pick from list):${CLEARFORMAT}  "
+			read -r vpn_choice
+
+			if [ "$vpn_choice" = "e" ]; then
+				exitmenu="exit"
 				break
+			elif ! Validate_Number "$vpn_choice"; then
+				printf "\\n\\e[31mPlease enter a valid number (pick from list)${CLEARFORMAT}\\n"
+			else
+				if [ "$vpn_choice" -lt 1 ] || [ "$vpn_choice" -gt 5 ]; then
+					printf "\\n\\e[31mPlease enter a number between 1 and 5${CLEARFORMAT}\\n"
+				else
+					vpnnum="$vpn_choice"
+					printf "\\n"
+					break
+				fi
 			fi
-		fi
-	done
-	
+		done
+	fi
+
 	if [ "$exitmenu" != "exit" ]; then
 		GLOBAL_VPN_NO="$vpnnum"
 		return 0
@@ -1147,6 +1198,7 @@ SetVPNClient(){
 }
 
 SetVPNParameters(){
+	vpnpreset="$1"
 	exitmenu=""
 	vpnnum=""
 	vpnprovider=""
@@ -1158,27 +1210,31 @@ SetVPNParameters(){
 	countryid=0
 	cityname=""
 	cityid=0
-	
-	while true; do
-		printf "\\n${BOLD}Please enter the VPN client number (pick from list):${CLEARFORMAT}  "
-		read -r vpn_choice
-		
-		if [ "$vpn_choice" = "e" ]; then
-			exitmenu="exit"
-			break
-		elif ! Validate_Number "$vpn_choice"; then
-			printf "\\n\\e[31mPlease enter a valid number (pick from list)${CLEARFORMAT}\\n"
-		else
-			if [ "$vpn_choice" -lt 1 ] || [ "$vpn_choice" -gt 5 ]; then
-				printf "\\n\\e[31mPlease enter a number between 1 and 5${CLEARFORMAT}\\n"
-			else
-				vpnnum="$vpn_choice"
-				printf "\\n"
+
+	if [ -n "$vpnpreset" ]; then
+		vpnnum="$vpnpreset"
+	else
+		while true; do
+			printf "\\n${BOLD}Please enter the VPN client number (pick from list):${CLEARFORMAT}  "
+			read -r vpn_choice
+
+			if [ "$vpn_choice" = "e" ]; then
+				exitmenu="exit"
 				break
+			elif ! Validate_Number "$vpn_choice"; then
+				printf "\\n\\e[31mPlease enter a valid number (pick from list)${CLEARFORMAT}\\n"
+			else
+				if [ "$vpn_choice" -lt 1 ] || [ "$vpn_choice" -gt 5 ]; then
+					printf "\\n\\e[31mPlease enter a number between 1 and 5${CLEARFORMAT}\\n"
+				else
+					vpnnum="$vpn_choice"
+					printf "\\n"
+					break
+				fi
 			fi
-		fi
-	done
-	
+		done
+	fi
+
 	if [ "$exitmenu" != "exit" ]; then
 		if [ "$(grep "vpn${vpnnum}_managed" "$SCRIPT_CONF" | cut -f2 -d"=")" = "false" ]; then
 			Print_Output false "VPN client $vpnnum is not managed" "$ERR"
@@ -1877,14 +1933,7 @@ MainMenu(){
 			4)
 				printf "\\n"
 				if Check_Lock menu; then
-					if SetVPNClient hide; then
-						if [ "$(grep "vpn${GLOBAL_VPN_NO}_managed" "$SCRIPT_CONF" | cut -f2 -d"=")" = "false" ]; then
-							Print_Output false "VPN client $GLOBAL_VPN_NO is not managed, cannot search for new server" "$ERR"
-							break
-						fi
-						UpdateVPNConfig unattended "$GLOBAL_VPN_NO"
-					fi
-					Clear_Lock
+					Menu_SearchVPN
 				fi
 				PressEnter
 				break
@@ -2036,17 +2085,124 @@ Menu_UpdateVPN(){
 	printf "    - country/city of VPN Server (pick from list)\\n"
 	printf "\\n"
 	printf "${BOLD}#########################################################${CLEARFORMAT}\\n"
-	
-	if SetVPNParameters; then
-		sed -i 's/^vpn'"$GLOBAL_VPN_NO"'_provider.*$/vpn'"$GLOBAL_VPN_NO"'_provider='"$GLOBAL_VPN_PROVIDER"'/' "$SCRIPT_CONF"
-		sed -i 's/^vpn'"$GLOBAL_VPN_NO"'_type.*$/vpn'"$GLOBAL_VPN_NO"'_type='"$GLOBAL_VPN_TYPE"'/' "$SCRIPT_CONF"
-		sed -i 's/^vpn'"$GLOBAL_VPN_NO"'_protocol.*$/vpn'"$GLOBAL_VPN_NO"'_protocol='"$GLOBAL_VPN_PROT"'/' "$SCRIPT_CONF"
-		sed -i 's/^vpn'"$GLOBAL_VPN_NO"'_countryname.*$/vpn'"$GLOBAL_VPN_NO"'_countryname='"$GLOBAL_COUNTRY_NAME"'/' "$SCRIPT_CONF"
-		sed -i 's/^vpn'"$GLOBAL_VPN_NO"'_countryid.*$/vpn'"$GLOBAL_VPN_NO"'_countryid='"$GLOBAL_COUNTRY_ID"'/' "$SCRIPT_CONF"
-		sed -i 's/^vpn'"$GLOBAL_VPN_NO"'_cityname.*$/vpn'"$GLOBAL_VPN_NO"'_cityname='"$GLOBAL_CITY_NAME"'/' "$SCRIPT_CONF"
-		sed -i 's/^vpn'"$GLOBAL_VPN_NO"'_cityid.*$/vpn'"$GLOBAL_VPN_NO"'_cityid='"$GLOBAL_CTIY_ID"'/' "$SCRIPT_CONF"
-		UpdateVPNConfig "$GLOBAL_VPN_NO"
+
+	while true; do
+		printf "\\n${BOLD}Please enter VPN client number(s) (e.g. 3, 1-5, or 1,4,2 - 'e' to exit):${CLEARFORMAT}  "
+		read -r slot_choice
+		if [ "$slot_choice" = "e" ]; then
+			Clear_Lock
+			return 1
+		elif ParseSlotSelection "$slot_choice"; then
+			break
+		else
+			printf "\\n\\e[31mPlease enter a valid slot number, range (1-5), or comma list${CLEARFORMAT}\\n"
+		fi
+	done
+
+	MUV_TOTAL=$(printf '%s\n' "$GLOBAL_VPN_SLOTS" | wc -w)
+	MUV_IDX=0
+	MUV_CONFIGURED=""
+	MUV_SKIPPED=""
+	MUV_FAILED=""
+	MUV_STOPPED=""
+
+	for MUV_SLOT in $GLOBAL_VPN_SLOTS; do
+		MUV_IDX=$((MUV_IDX + 1))
+		printf "\\n${BOLD}VPN client %s — %s of %s${CLEARFORMAT}\\n" "$MUV_SLOT" "$MUV_IDX" "$MUV_TOTAL"
+		if [ "$(grep "vpn${MUV_SLOT}_managed" "$SCRIPT_CONF" | cut -f2 -d"=")" = "false" ]; then
+			Print_Output false "VPN client $MUV_SLOT is not managed - skipping" "$WARN"
+			MUV_SKIPPED="$MUV_SKIPPED $MUV_SLOT"
+			continue
+		fi
+		if SetVPNParameters "$MUV_SLOT"; then
+			sed -i 's/^vpn'"$GLOBAL_VPN_NO"'_provider.*$/vpn'"$GLOBAL_VPN_NO"'_provider='"$GLOBAL_VPN_PROVIDER"'/' "$SCRIPT_CONF"
+			sed -i 's/^vpn'"$GLOBAL_VPN_NO"'_type.*$/vpn'"$GLOBAL_VPN_NO"'_type='"$GLOBAL_VPN_TYPE"'/' "$SCRIPT_CONF"
+			sed -i 's/^vpn'"$GLOBAL_VPN_NO"'_protocol.*$/vpn'"$GLOBAL_VPN_NO"'_protocol='"$GLOBAL_VPN_PROT"'/' "$SCRIPT_CONF"
+			sed -i 's/^vpn'"$GLOBAL_VPN_NO"'_countryname.*$/vpn'"$GLOBAL_VPN_NO"'_countryname='"$GLOBAL_COUNTRY_NAME"'/' "$SCRIPT_CONF"
+			sed -i 's/^vpn'"$GLOBAL_VPN_NO"'_countryid.*$/vpn'"$GLOBAL_VPN_NO"'_countryid='"$GLOBAL_COUNTRY_ID"'/' "$SCRIPT_CONF"
+			sed -i 's/^vpn'"$GLOBAL_VPN_NO"'_cityname.*$/vpn'"$GLOBAL_VPN_NO"'_cityname='"$GLOBAL_CITY_NAME"'/' "$SCRIPT_CONF"
+			sed -i 's/^vpn'"$GLOBAL_VPN_NO"'_cityid.*$/vpn'"$GLOBAL_VPN_NO"'_cityid='"$GLOBAL_CTIY_ID"'/' "$SCRIPT_CONF"
+			if UpdateVPNConfig "$GLOBAL_VPN_NO"; then
+				MUV_CONFIGURED="$MUV_CONFIGURED $MUV_SLOT"
+			else
+				MUV_FAILED="$MUV_FAILED $MUV_SLOT"
+			fi
+		else
+			# SetVPNParameters returned 1: either the user exited a sub-prompt
+			# with 'e', or a provider-level error (e.g. missing country data)
+			# aborted the prompt sequence. Either way there's no coherent
+			# state to keep going interactively, so stop the batch here.
+			MUV_STOPPED="true"
+			break
+		fi
+	done
+
+	if [ "$MUV_TOTAL" -gt 1 ] || [ -n "$MUV_SKIPPED" ] || [ -n "$MUV_FAILED" ] || [ -n "$MUV_STOPPED" ]; then
+		printf "\\n${BOLD}Batch summary:${CLEARFORMAT}\\n"
+		[ -n "$MUV_CONFIGURED" ] && printf "    Configured:%s\\n" "$MUV_CONFIGURED"
+		[ -n "$MUV_SKIPPED" ] && printf "    Skipped (unmanaged):%s\\n" "$MUV_SKIPPED"
+		[ -n "$MUV_FAILED" ] && printf "    Failed:%s\\n" "$MUV_FAILED"
+		if [ -n "$MUV_STOPPED" ]; then
+			MUV_PROCESSED="$MUV_CONFIGURED $MUV_SKIPPED $MUV_FAILED"
+			MUV_UNPROCESSED=""
+			for MUV_SLOT in $GLOBAL_VPN_SLOTS; do
+				case " $MUV_PROCESSED " in
+					*" $MUV_SLOT "*) ;;
+					*) MUV_UNPROCESSED="$MUV_UNPROCESSED $MUV_SLOT" ;;
+				esac
+			done
+			printf "    Stopped early - unprocessed:%s\\n" "$MUV_UNPROCESSED"
+		fi
 	fi
+
+	Clear_Lock
+}
+
+Menu_SearchVPN(){
+	ScriptHeader
+	ListVPNClients false hide
+
+	while true; do
+		printf "\\n${BOLD}Please enter VPN client number(s) (e.g. 3, 1-5, or 1,4,2 - 'e' to exit):${CLEARFORMAT}  "
+		read -r slot_choice
+		if [ "$slot_choice" = "e" ]; then
+			Clear_Lock
+			return 1
+		elif ParseSlotSelection "$slot_choice"; then
+			break
+		else
+			printf "\\n\\e[31mPlease enter a valid slot number, range (1-5), or comma list${CLEARFORMAT}\\n"
+		fi
+	done
+
+	MSV_TOTAL=$(printf '%s\n' "$GLOBAL_VPN_SLOTS" | wc -w)
+	MSV_IDX=0
+	MSV_UPDATED=""
+	MSV_SKIPPED=""
+	MSV_FAILED=""
+
+	for MSV_SLOT in $GLOBAL_VPN_SLOTS; do
+		MSV_IDX=$((MSV_IDX + 1))
+		printf "\\n${BOLD}VPN client %s — %s of %s${CLEARFORMAT}\\n" "$MSV_SLOT" "$MSV_IDX" "$MSV_TOTAL"
+		if [ "$(grep "vpn${MSV_SLOT}_managed" "$SCRIPT_CONF" | cut -f2 -d"=")" = "false" ]; then
+			Print_Output false "VPN client $MSV_SLOT is not managed, cannot search for new server - skipping" "$WARN"
+			MSV_SKIPPED="$MSV_SKIPPED $MSV_SLOT"
+			continue
+		fi
+		if UpdateVPNConfig unattended "$MSV_SLOT"; then
+			MSV_UPDATED="$MSV_UPDATED $MSV_SLOT"
+		else
+			MSV_FAILED="$MSV_FAILED $MSV_SLOT"
+		fi
+	done
+
+	if [ "$MSV_TOTAL" -gt 1 ] || [ -n "$MSV_SKIPPED" ] || [ -n "$MSV_FAILED" ]; then
+		printf "\\n${BOLD}Batch summary:${CLEARFORMAT}\\n"
+		[ -n "$MSV_UPDATED" ] && printf "    Updated:%s\\n" "$MSV_UPDATED"
+		[ -n "$MSV_SKIPPED" ] && printf "    Skipped (unmanaged):%s\\n" "$MSV_SKIPPED"
+		[ -n "$MSV_FAILED" ] && printf "    Failed:%s\\n" "$MSV_FAILED"
+	fi
+
 	Clear_Lock
 }
 
