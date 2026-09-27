@@ -850,7 +850,8 @@ UpdateVPNConfig(){
 	elif [ "$VPN_PROT_SHORT" = "UDP" ]; then
 		nvram set vpn_client"$VPN_NO"_proto="udp"
 	fi
-	nvram set vpn_client"$VPN_NO"_desc="$VPN_PROVIDER $OVPN_HOSTNAME_SHORT $VPN_TYPE_SHORT $VPN_PROT_SHORT"
+	VPN_DESC="$("provider_${VPN_PROVIDER_LC}_get_desc" "$OVPN_HOSTNAME" "$OVPN_HOSTNAME_SHORT" "$VPN_PROT_SHORT" "$VPN_TYPE_SHORT")"
+	nvram set vpn_client"$VPN_NO"_desc="$VPN_DESC"
 
 	nvram set vpn_client"$VPN_NO"_cipher="$OVPN_CIPHER"
 	nvram set vpn_client"$VPN_NO"_crypt="tls"
