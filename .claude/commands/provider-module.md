@@ -31,6 +31,8 @@ Every provider file has a `# Status:` header on line 3. The status MUST be set c
 
 **Rule: any change to a provider resets its status to `UNTESTED` until the change has been tested end-to-end with a live account on a real router.**
 
+**Warning:** `Create_Symlinks()` in `vpnmgr.sh` only writes a provider into `providers_list`/`providers.htm` when its status is literally `ACTIVE` — a non-`ACTIVE` provider doesn't just show as untested, it disappears from the WebUI provider list entirely. If it's the only provider actually copied to the router by `Install_Providers()` (currently just `nordvpn`), setting it to `UNTESTED` leaves the WebUI with zero providers, and `BuildConfigTable()` creates no provider radio buttons at all — every `document.form.vpnmgr_vpn{N}_provider` access elsewhere in `vpnmgr_www.js` throws on an empty/undefined control. Don't leave a provider at a non-`ACTIVE` status across a merge/install if it's the only one users actually have installed — verify and flip it back to `ACTIVE` before that lands somewhere a real router will pull it from.
+
 ## Provider contract — 18 required functions
 
 All function names follow the pattern `provider_<name>_<action>` where `<name>` matches the filename stem (e.g. `provider_nordvpn.sh` → `provider_nordvpn_*`). The smoke test verifies all 18 are present.
