@@ -242,6 +242,12 @@ provider_pia_get_short_name(){
 	printf '%s' "$1" | cut -d'.' -f1
 }
 
+# provider_pia_get_desc hostname short_name protocol vpn_type
+# Prints the nvram vpn_clientX_desc value (generic format).
+provider_pia_get_desc(){
+	printf '%s %s %s %s' "$VPN_PROVIDER" "$2" "$4" "$3"
+}
+
 # provider_pia_write_certs vpn_no ovpn_detail
 # Writes CA cert and CRL; removes unused cert files.
 provider_pia_write_certs(){

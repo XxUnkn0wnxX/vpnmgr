@@ -84,7 +84,7 @@ fi
 # ---------------------------------------------------------------------------
 # Section 2: Provider contract completeness
 #
-# The core dispatches to these 17 functions for every configured provider.
+# The core dispatches to these 18 functions for every configured provider.
 # Verify each non-template provider module implements all of them.
 # ---------------------------------------------------------------------------
 section "2. Provider contract"
@@ -96,6 +96,7 @@ REQUIRED_FUNCS=(
     get_comp
     get_hmac
     get_short_name
+    get_desc
     write_certs
     get_country_names
     get_country_id
@@ -229,6 +230,107 @@ done
 # TODO (Phase 5): jQuery uses \$j not \$ (noConflict — \$ clashes with Merlin's prototype.js)
 # TODO (Phase 5): No hardcoded country arrays — must load dynamically from provider data files
 # TODO (Phase 5): CSS syntax check via stylelint
+
+# ---------------------------------------------------------------------------
+# Section 9: NordVPN label/parsing (offline, no network)
+#
+# provider_nordvpn_get_desc() and provider_nordvpn_get_server_load() are pure
+# string/cache-file logic — no live API calls needed to exercise them. This
+# guards the full/compact label format and the round-trip back through
+# get_server_load() (which must recover the server id from whatever get_desc()
+# produced, in legacy, full, or compact form) without needing a router.
+# ---------------------------------------------------------------------------
+section "9. NordVPN label/parsing (offline)"
+
+assert_eq() {
+    local desc="$1" expected="$2" actual="$3"
+    if [[ "$actual" == "$expected" ]]; then
+        pass "$desc"
+    else
+        fail "$desc (expected '${expected}', got '${actual}')"
+    fi
+}
+
+_ORIG_SCRIPT_DIR="$SCRIPT_DIR"
+SCRIPT_DIR="$(mktemp -d)"
+_NORD_PATCHED="$SCRIPT_DIR/provider_nordvpn.sh"
+sed 's|/usr/sbin/curl|curl --globoff|g' "${REPO_ROOT}/providers/provider_nordvpn.sh" > "$_NORD_PATCHED"
+# shellcheck source=/dev/null
+. "$_NORD_PATCHED"
+
+# Full format is used as-is when short enough to fit the 25-char limit
+printf 'A|A|A\n' > "$SCRIPT_DIR/nordvpn_meta_a"
+assert_eq "get_desc: full format used when it fits within 25 chars" \
+    "A (A) - A [UDP] [P2P] - a" \
+    "$(provider_nordvpn_get_desc a.nordvpn.com A UDP P2P)"
+
+# Missing city -> "Country Wide" in full format
+printf 'Example Country|XX|\n' > "$SCRIPT_DIR/nordvpn_meta_xx333"
+_desc_missing_city="$(provider_nordvpn_get_desc xx333.nordvpn.com XX333 UDP Standard)"
+case "$_desc_missing_city" in
+    *"Wide"*) pass "get_desc: missing city -> Wide (full or compact)" ;;
+    *)        fail "get_desc: missing city did not produce 'Wide' (got '${_desc_missing_city}')" ;;
+esac
+
+# Missing country -> "Unknown" (only reachable in full format; realistic
+# long/blank combos push this case into compact, where country name is
+# dropped entirely by design — checked separately below)
+printf '|XX|Example City\n' > "$SCRIPT_DIR/nordvpn_meta_xx777"
+_desc_missing_country="$(provider_nordvpn_get_desc xx777.nordvpn.com XX777 UDP Standard)"
+case "$_desc_missing_country" in
+    *"Unknown"*|"XX "*) pass "get_desc: missing country -> Unknown (full) or dropped (compact)" ;;
+    *) fail "get_desc: missing country handled unexpectedly (got '${_desc_missing_country}')" ;;
+esac
+
+# Structural invariants on realistic (long) metadata that forces compact fallback
+printf 'A Very Long Country Name Indeed|XX|A Very Long City Name Alpha\n' > "$SCRIPT_DIR/nordvpn_meta_xx123456"
+_desc_compact="$(provider_nordvpn_get_desc xx123456.nordvpn.com XX123456 UDP Double)"
+_len_compact=${#_desc_compact}
+if [[ $_len_compact -le 25 ]]; then
+    pass "get_desc: compact fallback stays within 25 chars (len=${_len_compact})"
+else
+    fail "get_desc: compact fallback exceeded 25 chars (len=${_len_compact}): ${_desc_compact}"
+fi
+case "$_desc_compact" in
+    *xx123456) pass "get_desc: compact fallback preserves the full server id" ;;
+    *)         fail "get_desc: compact fallback did not end with the server id (got '${_desc_compact}')" ;;
+esac
+case "$_desc_compact" in
+    *"Dbl"*) pass "get_desc: compact fallback abbreviates Double -> Dbl" ;;
+    *)       fail "get_desc: compact fallback missing Dbl abbreviation (got '${_desc_compact}')" ;;
+esac
+case "$_desc_compact" in
+    *"  "*) fail "get_desc: compact fallback contains a double space (got '${_desc_compact}')" ;;
+    *)      pass "get_desc: compact fallback has no double-space artifacts" ;;
+esac
+
+# Country code unavailable -> no bare "(CC)" token, still resolves cleanly
+printf 'Example Country||Example City\n' > "$SCRIPT_DIR/nordvpn_meta_xx444"
+_desc_no_cc="$(provider_nordvpn_get_desc xx444.nordvpn.com XX444 TCP P2P)"
+case "$_desc_no_cc" in
+    *"()"*) fail "get_desc: missing country code left an empty '()' token (got '${_desc_no_cc}')" ;;
+    *)      pass "get_desc: missing country code produces no empty '()' token" ;;
+esac
+
+# Round-trip: get_server_load() must recover the server id load from every
+# desc format get_desc() can produce, plus the pre-existing legacy format.
+printf '42\n' > "$SCRIPT_DIR/nordvpn_load_gb1"
+assert_eq "get_server_load: round-trips a full-format desc" \
+    "42" "$(provider_nordvpn_get_server_load "$(provider_nordvpn_get_desc gb1.nordvpn.com GB1 UDP P2P)")"
+
+printf '17\n' > "$SCRIPT_DIR/nordvpn_load_xx123456"
+assert_eq "get_server_load: round-trips a compact-format desc" \
+    "17" "$(provider_nordvpn_get_server_load "$_desc_compact")"
+
+printf '55\n' > "$SCRIPT_DIR/nordvpn_load_xx111"
+assert_eq "get_server_load: still resolves the pre-existing legacy format" \
+    "55" "$(provider_nordvpn_get_server_load "NordVPN XX111 Standard UDP")"
+
+assert_eq "get_server_load: reports Unknown for an uncached server" \
+    "Unknown" "$(provider_nordvpn_get_server_load "$(provider_nordvpn_get_desc zz999.nordvpn.com ZZ999 UDP Standard)")"
+
+rm -rf "$SCRIPT_DIR"
+SCRIPT_DIR="$_ORIG_SCRIPT_DIR"
 
 # ---------------------------------------------------------------------------
 # Summary
