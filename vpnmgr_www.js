@@ -1,4 +1,5 @@
-var $j = jQuery.noConflict();
+// Keep global $ available to the firmware scripts loaded by state.js.
+var $j = jQuery;
 var daysofweek = ['Mon','Tues','Wed','Thurs','Fri','Sat','Sun'];
 
 var vpnmgr_providers = [];
