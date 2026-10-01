@@ -499,8 +499,26 @@ ParseSlotSelection(){
 	case "$_pss_raw" in *[!0-9,-]*) return 1 ;; esac
 
 	_pss_result=""
-	for _pss_tok in $(printf '%s' "$_pss_raw" | sed 's/,/ /g'); do
+	_pss_remaining="$_pss_raw"
+	_pss_more="true"
+	while [ "$_pss_more" = "true" ]; do
+		case "$_pss_remaining" in
+			*,*)
+				_pss_tok="${_pss_remaining%%,*}"
+				_pss_remaining="${_pss_remaining#*,}"
+			;;
+			*)
+				_pss_tok="$_pss_remaining"
+				_pss_more="false"
+			;;
+		esac
+		# A plain ,-split-then-word-split would silently swallow empty
+		# fields (e.g. "1,,2" -> "1 2", or a trailing "1,2," -> "1 2"),
+		# so reject them explicitly instead.
+		[ -z "$_pss_tok" ] && return 1
+
 		case "$_pss_tok" in
+			*-*-*) return 1 ;;
 			*-*)
 				_pss_lo="${_pss_tok%%-*}"; _pss_hi="${_pss_tok##*-}"
 				[ -z "$_pss_lo" ] || [ -z "$_pss_hi" ] && return 1

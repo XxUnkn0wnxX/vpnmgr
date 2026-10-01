@@ -387,6 +387,12 @@ assert_rejected "above range (6)"      "6"
 assert_rejected "reversed range"       "5-2"
 assert_rejected "dangling range start" "-3"
 assert_rejected "dangling range end"   "3-"
+assert_rejected "double comma"         "1,,2"
+assert_rejected "leading comma"        ",1,2"
+assert_rejected "trailing comma"       "1,2,"
+assert_rejected "comma-only token"     "1,-,2"
+assert_rejected "double-dash range"    "1--3"
+assert_rejected "triple-dash range"    "1-2-3"
 
 # ---------------------------------------------------------------------------
 # Summary
