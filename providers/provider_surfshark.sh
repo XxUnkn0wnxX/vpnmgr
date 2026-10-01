@@ -202,6 +202,12 @@ provider_surfshark_get_short_name(){
 	printf '%s' "$1" | cut -f1 -d '.' | tr 'a-z' 'A-Z'
 }
 
+# provider_surfshark_get_desc hostname short_name protocol vpn_type
+# Prints the nvram vpn_clientX_desc value (generic format).
+provider_surfshark_get_desc(){
+	printf '%s %s %s %s' "$VPN_PROVIDER" "$2" "$4" "$3"
+}
+
 # provider_surfshark_write_certs vpn_no ovpn_detail
 # Writes ca + tls-auth (static); removes crl, key, crt.
 provider_surfshark_write_certs(){

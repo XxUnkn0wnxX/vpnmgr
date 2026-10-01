@@ -69,6 +69,14 @@ provider_template_get_short_name(){
 	return 1
 }
 
+# provider_template_get_desc hostname short_name protocol vpn_type
+# Prints the nvram vpn_clientX_desc value. Default: reproduce the
+# generic format. Override with a provider-specific format if desired
+# (see provider_nordvpn.sh for an example using real server metadata).
+provider_template_get_desc(){
+	printf '%s %s %s %s' "$VPN_PROVIDER" "$2" "$4" "$3"
+}
+
 # provider_template_write_certs vpn_no ovpn_detail
 # Writes CA/CRL/crt/key/static files to /jffs/openvpn/ for vpn client vpn_no.
 # ovpn_detail: full text of the OVPN file (passed as $2)

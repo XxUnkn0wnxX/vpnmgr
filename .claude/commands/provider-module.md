@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This skill covers implementing and testing VPN provider sub-scripts in the `providers/` directory. Each provider is a self-contained POSIX sh script (busybox ash compatible) that implements a 17-function contract, allowing `vpnmgr.sh` to support any VPN provider without modification.
+This skill covers implementing and testing VPN provider sub-scripts in the `providers/` directory. Each provider is a self-contained POSIX sh script (busybox ash compatible) that implements an 18-function contract, allowing `vpnmgr.sh` to support any VPN provider without modification.
 
 Read `CLAUDE.md` first for project-wide context.
 
@@ -31,9 +31,11 @@ Every provider file has a `# Status:` header on line 3. The status MUST be set c
 
 **Rule: any change to a provider resets its status to `UNTESTED` until the change has been tested end-to-end with a live account on a real router.**
 
-## Provider contract — 17 required functions
+**Warning:** `Create_Symlinks()` in `vpnmgr.sh` only writes a provider into `providers_list`/`providers.htm` when its status is literally `ACTIVE` — a non-`ACTIVE` provider doesn't just show as untested, it disappears from the WebUI provider list entirely. If it's the only provider actually copied to the router by `Install_Providers()` (currently just `nordvpn`), setting it to `UNTESTED` leaves the WebUI with zero providers, and `BuildConfigTable()` creates no provider radio buttons at all — every `document.form.vpnmgr_vpn{N}_provider` access elsewhere in `vpnmgr_www.js` throws on an empty/undefined control. Don't leave a provider at a non-`ACTIVE` status across a merge/install if it's the only one users actually have installed — verify and flip it back to `ACTIVE` before that lands somewhere a real router will pull it from.
 
-All function names follow the pattern `provider_<name>_<action>` where `<name>` matches the filename stem (e.g. `provider_nordvpn.sh` → `provider_nordvpn_*`). The smoke test verifies all 17 are present.
+## Provider contract — 18 required functions
+
+All function names follow the pattern `provider_<name>_<action>` where `<name>` matches the filename stem (e.g. `provider_nordvpn.sh` → `provider_nordvpn_*`). The smoke test verifies all 18 are present.
 
 ```sh
 # Version string for this module
@@ -55,9 +57,15 @@ provider_<name>_get_comp()
 # TLS auth key direction (0, 1, or "" if tls-auth not used)
 provider_<name>_get_hmac()
 
-# Short human-readable label for the server (used in nvram vpn_clientX_desc)
+# Short human-readable label for the server (input to get_desc)
 # Arguments: server_id addr
 provider_<name>_get_short_name()
+
+# Client description shown in CLI/WebUI (nvram vpn_clientX_desc).
+# Arguments: hostname short_name protocol vpn_type
+# Prints the description string to stdout. Providers without a custom
+# format should return "$VPN_PROVIDER short_name vpn_type protocol".
+provider_<name>_get_desc()
 
 # Write cert files to /jffs/openvpn/vpn_crt_client<no>_*
 # Arguments: vpn_no ovpn_content
@@ -186,7 +194,7 @@ provider_<name>_write_certs(){
 
 ## Testing a provider locally
 
-`scripts/provider-test.sh` exercises all 17 contract functions against the live API without a router. Run it before opening a PR:
+`scripts/provider-test.sh` exercises all 18 contract functions against the live API without a router. Run it before opening a PR:
 
 ```sh
 bash scripts/provider-test.sh nordvpn
@@ -196,7 +204,7 @@ bash scripts/provider-test.sh pia
 The test harness:
 - Stubs `Print_Output`, `Create_Symlinks`
 - Patches `/usr/sbin/curl → curl --globoff` (Linux curl glob issue with bracket URLs)
-- Runs `refresh_cache`, then all metadata functions, then `get_server` → `get_server_load` → `get_ovpn` → `write_certs` dry run
+- Runs `refresh_cache`, then all metadata functions, then `get_server` → `get_server_load` → `get_desc` → `get_ovpn` → `write_certs` dry run
 
 `UNTESTED` and `UNMAINTAINED` providers run all tests with a warning banner. `DEPRECATED` providers skip network tests. `TEMPLATE` exits immediately.
 
