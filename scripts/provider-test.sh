@@ -247,6 +247,16 @@ else
         _skip "get_server_load — skipped (no server from get_server)"
     fi
 
+    # get_desc
+    if [ -n "$server" ]; then
+        short_name=$(call get_short_name "$server" "" 2>/dev/null)
+        desc=$(call get_desc "$server" "$short_name" "UDP" "Standard" 2>/dev/null) && {
+            _pass "get_desc → $desc"
+        } || _fail "get_desc"
+    else
+        _skip "get_desc — skipped (no server from get_server)"
+    fi
+
     # get_ovpn
     if [ -n "$server" ]; then
         start=$(date +%s%3N)

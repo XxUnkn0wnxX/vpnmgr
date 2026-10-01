@@ -1,4 +1,5 @@
-var $j = jQuery.noConflict();
+// Keep global $ available to the firmware scripts loaded by state.js.
+var $j = jQuery;
 var daysofweek = ['Mon','Tues','Wed','Thurs','Fri','Sat','Sun'];
 
 var vpnmgr_providers = [];
@@ -12,6 +13,7 @@ var providerTypes = {
 
 var refreshcacheddatainterval;
 var getserverloadinterval;
+var vpnmgr_initComplete = false;
 
 function SettingHint(hintid){
 	var tag_name = document.getElementsByTagName('a');
@@ -371,7 +373,10 @@ function get_conf_file(){
 					var settingvalue = window['vpnmgr_settings'][i][1];
 					if(settingname.indexOf('cityid') != -1 || settingname.indexOf('countryid') != -1 || settingname.indexOf('countryname') != -1 || settingname.indexOf('cityname') != -1) continue;
 					if(settingname.indexOf('schdays') == -1){
-						eval('document.form.vpnmgr_'+settingname).value = settingvalue;
+						var vpnmgr_field = document.form['vpnmgr_'+settingname];
+						if (vpnmgr_field) {
+							vpnmgr_field.value = settingvalue;
+						}
 						if(settingname.indexOf('managed') != -1) OptionsEnableDisable($j('#vpnmgr_'+settingname.replace('_managed','')+'_man_'+settingvalue)[0],true);
 						if(settingname.indexOf('schenabled') != -1) ScheduleOptionsEnableDisable($j('#vpnmgr_'+settingname.replace('_schenabled','')+'_sch_'+settingvalue)[0]);
 						if(settingname.indexOf('provider') != -1) VPNTypesToggle($j('#vpnmgr_'+settingname.replace('_provider','')+'_prov_'+settingvalue.toLowerCase())[0]);
@@ -447,8 +452,9 @@ function get_conf_file(){
 				showhide('imgRefreshCachedData',false);
 				showhide('refreshcacheddata_text',false);
 				showhide('btnRefreshCachedData',true);
-				
+
 				AddEventHandlers();
+				vpnmgr_initComplete = true;
 			}
 	});
 }
@@ -485,6 +491,10 @@ function pass_checked(obj,showobj){
 }
 
 function SaveConfig(){
+	if (!vpnmgr_initComplete) {
+		alert('Settings have not finished loading yet. Please reload the page and try again before saving.');
+		return false;
+	}
 	if(Validate_All()){
 		for(var i=1; i < 6; i++){
 			if(eval('document.form.vpn'+i+'_schedulemode').value == 'EveryX'){

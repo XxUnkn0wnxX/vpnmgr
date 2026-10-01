@@ -78,6 +78,12 @@ provider_nordvpn_get_server(){
 		printf '%s' "$_nord_load" > "$SCRIPT_DIR/nordvpn_load_${_nord_hostname%%.*}"
 	fi
 
+	_nord_country_name="$(printf '%s' "$_nord_vjson" | jq -r '.locations[0].country.name // empty')"
+	_nord_country_code="$(printf '%s' "$_nord_vjson" | jq -r '.locations[0].country.code // empty')"
+	_nord_city_name="$(printf '%s' "$_nord_vjson" | jq -r '.locations[0].country.city.name // empty')"
+	printf '%s|%s|%s\n' "$_nord_country_name" "$_nord_country_code" "$_nord_city_name" \
+		> "$SCRIPT_DIR/nordvpn_meta_${_nord_hostname%%.*}"
+
 	printf '%s' "$_nord_hostname"
 }
 
@@ -126,6 +132,54 @@ provider_nordvpn_get_hmac(){
 # provider_nordvpn_get_short_name hostname addr
 provider_nordvpn_get_short_name(){
 	printf '%s' "$1" | cut -f1 -d'.' | tr 'a-z' 'A-Z'
+}
+
+# provider_nordvpn_get_desc hostname short_name protocol vpn_type
+# Prints the nvram vpn_clientX_desc value using the actual selected
+# server's location, cached by get_server() at selection time:
+#   Country Name (CC) - City Name [PROTOCOL] [VPN Type] - server-id
+# Falls back to a compact form under Merlin's 25-char Description limit:
+#   CC CityAbbrev PROTO TypeAbbr server-id
+provider_nordvpn_get_desc(){
+	_gd_hostname="$1"; _gd_short="$2"; _gd_prot="$3"; _gd_type="$4"
+	_gd_meta="$SCRIPT_DIR/nordvpn_meta_${_gd_hostname%%.*}"
+	_gd_country=""; _gd_cc=""; _gd_city=""
+	[ -f "$_gd_meta" ] && IFS='|' read -r _gd_country _gd_cc _gd_city < "$_gd_meta"
+	[ -z "$_gd_country" ] && _gd_country="Unknown"
+	_gd_serverid="$(printf '%s' "$_gd_short" | tr 'A-Z' 'a-z')"
+	_gd_city_full="$_gd_city"; [ -z "$_gd_city_full" ] && _gd_city_full="Country Wide"
+
+	if [ -n "$_gd_cc" ]; then
+		_gd_full="${_gd_country} (${_gd_cc}) - ${_gd_city_full} [${_gd_prot}] [${_gd_type}] - ${_gd_serverid}"
+	else
+		_gd_full="${_gd_country} - ${_gd_city_full} [${_gd_prot}] [${_gd_type}] - ${_gd_serverid}"
+	fi
+
+	if [ "${#_gd_full}" -le 25 ]; then
+		printf '%s' "$_gd_full"
+		return 0
+	fi
+
+	# Compact fallback — reserve space for the fixed parts (CC, protocol,
+	# type abbreviation, server id) before truncating the city name.
+	_gd_type_abbr="Std"
+	case "$_gd_type" in
+		Double) _gd_type_abbr="Dbl" ;;
+		P2P)    _gd_type_abbr="P2P" ;;
+	esac
+	_gd_city_out="$_gd_city"; [ -z "$_gd_city_out" ] && _gd_city_out="Wide"
+	_gd_fixed=" ${_gd_prot} ${_gd_type_abbr} ${_gd_serverid}"
+	if [ -n "$_gd_cc" ]; then
+		_gd_fixed="${_gd_cc}${_gd_fixed}"
+	fi
+	_gd_budget=$((25 - ${#_gd_fixed} - 1))
+	[ "$_gd_budget" -lt 1 ] && _gd_budget=1
+	_gd_city_out="$(printf '%s' "$_gd_city_out" | cut -c"1-${_gd_budget}" | sed 's/ *$//')"
+	if [ -n "$_gd_cc" ]; then
+		printf '%s %s %s %s %s' "$_gd_cc" "$_gd_city_out" "$_gd_prot" "$_gd_type_abbr" "$_gd_serverid"
+	else
+		printf '%s %s %s %s' "$_gd_city_out" "$_gd_prot" "$_gd_type_abbr" "$_gd_serverid"
+	fi
 }
 
 # provider_nordvpn_write_certs vpn_no ovpn_detail
@@ -201,12 +255,19 @@ provider_nordvpn_get_types(){
 }
 
 # provider_nordvpn_get_server_load desc
-# desc: nvram vpn_clientX_desc value ("NordVPN <hostname_short> <type> <proto>")
+# desc: nvram vpn_clientX_desc value. Handles the legacy format
+# ("NordVPN <hostname_short> <type> <proto>", server id is the 2nd
+# token) and the full/compact formats from get_desc() (server id is
+# always the last whitespace-separated token in both).
 # Reads load written by get_server at selection time.
 # NordVPN /server/stats/ API was deprecated; load is cached from recommendations response.
 provider_nordvpn_get_server_load(){
 	_sl_desc="$1"
-	_sl_short="$(printf '%s' "$_sl_desc" | cut -f2 -d ' ' | tr 'A-Z' 'a-z')"
+	case "$_sl_desc" in
+		"NordVPN "*) _sl_id="$(printf '%s' "$_sl_desc" | cut -f2 -d ' ')" ;;
+		*)           _sl_id="${_sl_desc##* }" ;;
+	esac
+	_sl_short="$(printf '%s' "$_sl_id" | tr 'A-Z' 'a-z')"
 	_sl_cache="$SCRIPT_DIR/nordvpn_load_${_sl_short}"
 	if [ -f "$_sl_cache" ]; then
 		cat "$_sl_cache"
