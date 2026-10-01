@@ -75,8 +75,8 @@ Replace `<branch>` with the branch name:
 To switch a running installation between the stable release and the `develop` branch:
 
 ```sh
-vpnmgr switch stable    # pins to main
-vpnmgr switch develop   # pins to develop branch
+vpnmgr stable    # pins to main
+vpnmgr develop   # pins to develop branch
 ```
 
 ### Testing a provider locally
