@@ -233,8 +233,11 @@ Update_Check() {
 **Bump it whenever you change:**
 - `vpnmgr.sh` itself
 - Any `providers/provider_*.sh` file
+- `vpnmgr_www.asp`, `vpnmgr_www.js`, or anything under `www/`
 
-CI enforces this: the `version-bump` job in `.github/workflows/ci.yml` will fail the PR if script files changed but the version didn't. Follow semver:
+Routers only see an update when `SCRIPT_VERSION` (or the md5 of `vpnmgr.sh`) changes, so a change to any other delivered file without a bump never reaches existing installs.
+
+CI enforces this: the `version-bump` job in `.github/workflows/ci.yml` will fail the PR if router-delivered files changed but the version didn't. Follow semver:
 
 | Change type | Bump |
 |-------------|------|

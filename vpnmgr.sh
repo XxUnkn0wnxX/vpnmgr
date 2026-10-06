@@ -30,7 +30,7 @@
 
 ### Start of script variables ###
 readonly SCRIPT_NAME="vpnmgr"
-readonly SCRIPT_VERSION="v3.3.0"
+readonly SCRIPT_VERSION="v3.3.1"
 SCRIPT_BRANCH="main"
 SCRIPT_REPO="https://raw.githubusercontent.com/h0me5k1n/$SCRIPT_NAME/$SCRIPT_BRANCH"
 readonly SCRIPT_DIR="/jffs/addons/$SCRIPT_NAME.d"
@@ -40,6 +40,7 @@ readonly PROVIDERS_DIR="$SCRIPT_DIR/providers"
 readonly SCRIPT_WEBPAGE_DIR="$(readlink /www/user)"
 readonly SCRIPT_WEB_DIR="$SCRIPT_WEBPAGE_DIR/$SCRIPT_NAME"
 readonly SCRIPT_WWW_DIR="$SCRIPT_DIR/www"
+readonly SCRIPT_FILES_VERSION="$SCRIPT_DIR/.files_version"
 [ -z "$(nvram get odmpid)" ] && ROUTER_MODEL=$(nvram get productid) || ROUTER_MODEL=$(nvram get odmpid)
 GLOBAL_VPN_NO=""
 GLOBAL_VPN_PROVIDER=""
@@ -221,6 +222,7 @@ Update_Version(){
 				y|Y)
 					Update_File web-assets
 					Update_File vpnmgr_www.asp
+					Update_Addon_Files "$serverver"
 					printf "\\n"
 					/usr/sbin/curl -fsL --retry 3 "$SCRIPT_REPO/$SCRIPT_NAME.sh" -o "/jffs/scripts/$SCRIPT_NAME" && Print_Output true "$SCRIPT_NAME successfully updated"
 					chmod 0755 "/jffs/scripts/$SCRIPT_NAME"
@@ -249,6 +251,7 @@ Update_Version(){
 		Print_Output true "Downloading latest version ($serverver) of $SCRIPT_NAME" "$PASS"
 		Update_File web-assets
 		Update_File vpnmgr_www.asp
+		Update_Addon_Files "$serverver"
 		/usr/sbin/curl -fsL --retry 3 "$SCRIPT_REPO/$SCRIPT_NAME.sh" -o "/jffs/scripts/$SCRIPT_NAME" && Print_Output true "$SCRIPT_NAME successfully updated"
 		chmod 0755 "/jffs/scripts/$SCRIPT_NAME"
 		Set_Version_Custom_Settings local "$serverver"
@@ -285,7 +288,7 @@ Update_File(){
 		rm -f "$tmpfile"
 	elif [ "$1" = "vpnmgr_www.js" ]; then
 		tmpfile="/tmp/$1"
-		Download_File "$SCRIPT_REPO/$1" "$tmpfile"
+		Download_File "$SCRIPT_REPO/$1" "$tmpfile" || { rm -f "$tmpfile"; return 1; }
 		if ! diff -q "$tmpfile" "$SCRIPT_DIR/$1" >/dev/null 2>&1; then
 			Download_File "$SCRIPT_REPO/$1" "$SCRIPT_DIR/$1"
 			cp -f "$SCRIPT_DIR/$1" "$SCRIPT_WEB_DIR/$1"
@@ -294,6 +297,27 @@ Update_File(){
 		rm -f "$tmpfile"
 	else
 		return 1
+	fi
+}
+
+# vpnmgr_www.js and the provider modules are downloaded separately from the
+# script itself. $1 is the version they were fetched for, recorded so that
+# Sync_Addon_Files can tell when they are out of step with the script.
+Update_Addon_Files(){
+	if Update_File vpnmgr_www.js && Install_Providers; then
+		printf '%s\n' "$1" > "$SCRIPT_FILES_VERSION"
+	else
+		Print_Output true "Failed to refresh WebUI and provider files - will retry when $SCRIPT_NAME is next opened" "$WARN"
+		return 1
+	fi
+}
+
+# Versions up to v3.3.0 did not refresh these files on update, and the updater
+# that runs is always the outgoing version's, so catch up here on first run.
+Sync_Addon_Files(){
+	if [ "$(cat "$SCRIPT_FILES_VERSION" 2>/dev/null)" != "$SCRIPT_VERSION" ]; then
+		Print_Output true "Refreshing WebUI and provider files for $SCRIPT_VERSION"
+		Update_Addon_Files "$SCRIPT_VERSION"
 	fi
 }
 
@@ -643,13 +667,15 @@ Create_Symlinks(){
 
 Install_Providers(){
 	mkdir -p "$PROVIDERS_DIR"
+	_ip_rc=0
 	# shellcheck disable=SC2043
 	for provider in nordvpn; do
 		/usr/sbin/curl -fsL --retry 3 \
 			"$SCRIPT_REPO/providers/provider_${provider}.sh" \
-			-o "$PROVIDERS_DIR/provider_${provider}.sh"
+			-o "$PROVIDERS_DIR/provider_${provider}.sh" || _ip_rc=1
 		chmod 0755 "$PROVIDERS_DIR/provider_${provider}.sh"
 	done
+	return "$_ip_rc"
 }
 
 Refresh_Provider_Cache(){
@@ -2309,10 +2335,8 @@ Menu_Install(){
 	Auto_ServiceEvent create 2>/dev/null
 	
 	Update_File vpnmgr_www.asp
-	Update_File vpnmgr_www.js
 	Update_File web-assets
-
-	Install_Providers
+	Update_Addon_Files "$SCRIPT_VERSION"
 	Refresh_Provider_Cache
 
 	Set_Version_Custom_Settings local "$SCRIPT_VERSION"
@@ -2491,6 +2515,7 @@ if [ -z "$1" ]; then
 	Auto_Startup create 2>/dev/null
 	Auto_ServiceEvent create 2>/dev/null
 	Shortcut_Script create
+	Sync_Addon_Files
 	Refresh_Provider_Cache
 
 	Create_Symlinks
