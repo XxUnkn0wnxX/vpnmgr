@@ -395,6 +395,87 @@ assert_rejected "double-dash range"    "1--3"
 assert_rejected "triple-dash range"    "1-2-3"
 
 # ---------------------------------------------------------------------------
+# Section 11: Update delivers WebUI JS and provider modules (offline)
+#
+# vpnmgr_www.js and providers/ are separate downloads from vpnmgr.sh. Both
+# Update_Version paths must refresh them, and Sync_Addon_Files must catch up
+# on first run after an update performed by an older version's updater.
+# Same extraction approach as section 10, with the downloads stubbed.
+# ---------------------------------------------------------------------------
+section "11. Update refreshes WebUI JS and providers (offline)"
+
+_uv_calls="$(sed -n '/^Update_Version(){/,/^}/p' "${REPO_ROOT}/vpnmgr.sh" | grep -c 'Update_Addon_Files "\$serverver"' || true)"
+if [[ "$_uv_calls" -eq 2 ]]; then
+    pass "Update_Version: both update paths call Update_Addon_Files"
+else
+    fail "Update_Version: expected 2 Update_Addon_Files calls, found ${_uv_calls}"
+fi
+
+if sed -n '/^if \[ -z "\$1" \]; then/,/^fi/p' "${REPO_ROOT}/vpnmgr.sh" | grep -q 'Sync_Addon_Files'; then
+    pass "interactive startup calls Sync_Addon_Files"
+else
+    fail "interactive startup does not call Sync_Addon_Files"
+fi
+
+if grep -q "vpnmgr_www" "${REPO_ROOT}/.github/workflows/ci.yml" && grep -q "www/" "${REPO_ROOT}/.github/workflows/ci.yml"; then
+    pass "ci.yml: version bump check covers WebUI files"
+else
+    fail "ci.yml: version bump check does not cover WebUI files"
+fi
+
+_SAF_EXTRACT="$(mktemp)"
+sed -n '/^Update_Addon_Files(){/,/^}/p' "${REPO_ROOT}/vpnmgr.sh" > "$_SAF_EXTRACT"
+sed -n '/^Sync_Addon_Files(){/,/^}/p' "${REPO_ROOT}/vpnmgr.sh" >> "$_SAF_EXTRACT"
+# shellcheck source=/dev/null
+. "$_SAF_EXTRACT"
+rm -f "$_SAF_EXTRACT"
+
+_SAF_DIR="$(mktemp -d)"
+SCRIPT_NAME="vpnmgr"
+SCRIPT_VERSION="v9.9.9"
+SCRIPT_FILES_VERSION="${_SAF_DIR}/.files_version"
+WARN=""
+_SAF_LOG=""
+_SAF_FAIL=""
+Print_Output()      { :; }
+Update_File()       { _SAF_LOG="${_SAF_LOG}js "; [[ "$_SAF_FAIL" != "js" ]]; }
+Install_Providers() { _SAF_LOG="${_SAF_LOG}providers "; [[ "$_SAF_FAIL" != "providers" ]]; }
+
+_SAF_LOG=""; Sync_Addon_Files || true
+if [[ "$_SAF_LOG" == "js providers " && "$(cat "$SCRIPT_FILES_VERSION" 2>/dev/null)" == "v9.9.9" ]]; then
+    pass "Sync_Addon_Files: no recorded version -> refreshes and records version"
+else
+    fail "Sync_Addon_Files: no recorded version (calls '${_SAF_LOG}')"
+fi
+
+_SAF_LOG=""; Sync_Addon_Files || true
+if [[ -z "$_SAF_LOG" ]]; then
+    pass "Sync_Addon_Files: recorded version matches -> no downloads"
+else
+    fail "Sync_Addon_Files: matching version still downloaded (calls '${_SAF_LOG}')"
+fi
+
+echo "v9.9.8" > "$SCRIPT_FILES_VERSION"
+_SAF_LOG=""; Sync_Addon_Files || true
+if [[ "$_SAF_LOG" == "js providers " && "$(cat "$SCRIPT_FILES_VERSION")" == "v9.9.9" ]]; then
+    pass "Sync_Addon_Files: older recorded version -> refreshes"
+else
+    fail "Sync_Addon_Files: older recorded version (calls '${_SAF_LOG}')"
+fi
+
+for _saf_step in js providers; do
+    echo "v9.9.8" > "$SCRIPT_FILES_VERSION"
+    _SAF_FAIL="$_saf_step"
+    if ! Sync_Addon_Files && [[ "$(cat "$SCRIPT_FILES_VERSION")" == "v9.9.8" ]]; then
+        pass "Sync_Addon_Files: failed ${_saf_step} download -> version not recorded, retried next run"
+    else
+        fail "Sync_Addon_Files: failed ${_saf_step} download recorded as done"
+    fi
+done
+_SAF_FAIL=""
+rm -rf "$_SAF_DIR"
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 TOTAL=$((PASS + FAIL))
