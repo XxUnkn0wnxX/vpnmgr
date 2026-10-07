@@ -19,7 +19,7 @@ repo merges jackyaz's work as the baseline and restructures it into a modular pr
 | 4 — WebUI | ⏸ Deferred | shared-jy dependency removed; full modernisation pending |
 | 5 — Documentation | ✅ Done | README rewritten |
 
-CI: `bash scripts/smoke-test.sh` — 103 tests, runs on every PR.
+CI: `bash scripts/smoke-test.sh` — runs on every PR to `main` and `develop`.
 Local provider test: `bash scripts/provider-test.sh <provider>` — live API without a router.
 
 ## Provider status
@@ -60,8 +60,17 @@ Use `_prefixed` variables inside provider functions (not `local`) — providers 
 - `*.ovpn`, `*.zip`, `*.pem`, `*.p12` — provider configs/certs are downloaded at runtime
 
 ### Other constraints
-- Run `bash scripts/smoke-test.sh` before every commit — must stay at 103/103
+- Run `bash scripts/smoke-test.sh` before every commit — every test must pass
 - Feature branches only — `main` is protected
+
+### Branch workflow
+Routers install and update straight from `main`, so merging to `main` is the release.
+
+- Branch from `develop` and open PRs into `develop`. No `SCRIPT_VERSION` bump is needed there.
+- Test on a router with `vpnmgr develop`, which reinstalls everything from `develop`.
+- To release, bump `SCRIPT_VERSION` on `develop` and open one PR from `develop` into `main`.
+  CI enforces the bump on that PR.
+- If a fix has to go directly to `main`, merge `main` back into `develop` afterwards.
 - No Co-Authored-By trailers in commits
 - Commit style: `type: description` (feat, fix, refactor, docs, chore)
 
@@ -81,7 +90,7 @@ vpnmgr/
 │   ├── provider_wevpn.sh        # DEPRECATED
 │   └── provider_template.sh     # Template for new providers
 ├── scripts/
-│   ├── smoke-test.sh            # CI — 103 tests
+│   ├── smoke-test.sh            # CI smoke tests
 │   └── provider-test.sh         # Live API test harness
 ├── .claude/
 │   └── commands/                # Skill files (used by Claude Code)

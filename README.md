@@ -72,12 +72,14 @@ Replace `<branch>` with the branch name:
 /usr/sbin/curl --retry 3 "https://raw.githubusercontent.com/h0me5k1n/vpnmgr/<branch>/vpnmgr.sh" -o "/jffs/scripts/vpnmgr" && chmod 0755 /jffs/scripts/vpnmgr && /jffs/scripts/vpnmgr install
 ```
 
-To switch a running installation between the stable release and the `develop` branch:
+To switch a running installation between the stable release and the `develop` (pre-release) branch:
 
 ```sh
-vpnmgr stable    # pins to main
-vpnmgr develop   # pins to develop branch
+vpnmgr stable    # reinstalls from main
+vpnmgr develop   # reinstalls from develop
 ```
+
+Each command is a one-off reinstall from that branch. The installed script still checks `main` for updates, so run `vpnmgr develop` again to pick up later changes on `develop`.
 
 ### Testing a provider locally
 

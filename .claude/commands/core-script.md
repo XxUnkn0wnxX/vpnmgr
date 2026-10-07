@@ -237,7 +237,7 @@ Update_Check() {
 
 Routers only see an update when `SCRIPT_VERSION` (or the md5 of `vpnmgr.sh`) changes, so a change to any other delivered file without a bump never reaches existing installs.
 
-CI enforces this: the `version-bump` job in `.github/workflows/ci.yml` will fail the PR if router-delivered files changed but the version didn't. Follow semver:
+The bump happens once per release, on `develop`, before the PR from `develop` into `main`. CI enforces it there: the `version-bump` job in `.github/workflows/ci.yml` will fail a PR into `main` if router-delivered files changed but the version didn't. Follow semver:
 
 | Change type | Bump |
 |-------------|------|
