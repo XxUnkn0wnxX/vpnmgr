@@ -30,7 +30,7 @@ jobs:
   version-bump:
     name: Version bump check
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && github.base_ref == 'main'
     steps:
       - uses: actions/checkout@v4
         with:
