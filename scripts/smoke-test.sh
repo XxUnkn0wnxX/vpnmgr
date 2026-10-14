@@ -476,6 +476,113 @@ _SAF_FAIL=""
 rm -rf "$_SAF_DIR"
 
 # ---------------------------------------------------------------------------
+# Section 12: Searchable country/city picker (offline)
+#
+# The picker's matching (Picker_Filter) and key handling (Picker_HandleKey)
+# do no terminal I/O, so they can be driven here with key tokens. The raw
+# key reads and redraws in Picker_Select need a real terminal and are not
+# covered. Same extraction approach as section 10.
+# ---------------------------------------------------------------------------
+section "12. Searchable country/city picker (offline)"
+
+_PICK_EXTRACT="$(mktemp)"
+sed -n '/^Validate_Number(){/,/^}/p' "${REPO_ROOT}/vpnmgr.sh" > "$_PICK_EXTRACT"
+sed -n '/^### Searchable picker/,/^### End of searchable picker/p' "${REPO_ROOT}/vpnmgr.sh" >> "$_PICK_EXTRACT"
+# shellcheck source=/dev/null
+. "$_PICK_EXTRACT"
+rm -f "$_PICK_EXTRACT"
+
+_PICK_FIXTURE="$(printf '%s\n' "Albania" "Cote d'Ivoire" "New York" "Niger" "Nigeria" "St. John's (Antigua)" "Tunisia" "United Arab Emirates" "United Kingdom" "United States")"
+
+assert_filter() {
+    local desc="$1" query="$2" expected="$3" got
+    PICK_QUERY="$query"
+    got="$(printf '%s\n' "$_PICK_FIXTURE" | Picker_Filter | paste -sd'|' -)"
+    if [[ "$got" == "$expected" ]]; then
+        pass "$desc"
+    else
+        fail "$desc (expected '${expected}', got '${got}')"
+    fi
+}
+
+# pick_run allow_blank token...  — a token is a key name, or a single character to type
+pick_run() {
+    PICK_LIST="$_PICK_FIXTURE"
+    PICK_ALLOW_BLANK="$1"
+    PICK_QUERY=""; PICK_MSG=""; PICK_DONE=""; PICK_RESULT=""
+    shift
+    Picker_Refilter
+    local tok
+    for tok in "$@"; do
+        case "$tok" in
+            TAB|BTAB|UP|DOWN|ENTER|ESC|EOF|BS) Picker_HandleKey "$tok" ;;
+            *) Picker_HandleKey CHAR "$tok" ;;
+        esac
+    done
+}
+
+assert_pick() {
+    local desc="$1" field="$2" expected="$3" got
+    case "$field" in
+        result) got="${PICK_DONE}:${PICK_RESULT}" ;;
+        query)  got="$PICK_QUERY" ;;
+        sel)    got="$PICK_SEL" ;;
+        open)   got="${PICK_DONE:-open}:${PICK_MSG%% *}" ;;
+    esac
+    if [[ "$got" == "$expected" ]]; then
+        pass "$desc"
+    else
+        fail "$desc (expected '${expected}', got '${got}')"
+    fi
+}
+
+assert_filter "substring anywhere, list order kept" "uni" "Tunisia|United Arab Emirates|United Kingdom|United States"
+assert_filter "more characters narrow the list"    "united k" "United Kingdom"
+assert_filter "case-insensitive"                   "NEW YORK" "New York"
+assert_filter "spaces ignored"                     "newyork"  "New York"
+assert_filter "punctuation ignored"                "st johns" "St. John's (Antigua)"
+assert_filter "apostrophe in name ignored"         "cote d"   "Cote d'Ivoire"
+assert_filter "regex characters are literal"       "n.w"      ""
+assert_filter "backslash is literal"               'n\w'      ""
+assert_filter "no match gives empty list"          "atlantis" ""
+assert_filter "empty query returns everything"     ""         "$(printf '%s\n' "$_PICK_FIXTURE" | paste -sd'|' -)"
+
+pick_run false u n i TAB TAB ENTER
+assert_pick "Tab moves down the matches" result "ok:United Arab Emirates"
+pick_run false u n i TAB TAB TAB TAB TAB
+assert_pick "Tab wraps to the first match" sel "1"
+assert_pick "Tab leaves the query unchanged" query "uni"
+pick_run false u n i BTAB ENTER
+assert_pick "Shift+Tab wraps to the last match" result "ok:United States"
+pick_run false TAB ENTER
+assert_pick "Tab on a blank query browses the full list" result "ok:Albania"
+pick_run false DOWN DOWN UP ENTER
+assert_pick "arrow keys move the highlight" result "ok:Albania"
+pick_run false u n i TAB TAB t e d
+assert_pick "typing after Tab edits the query" query "united"
+assert_pick "typing after Tab clears the highlight" sel "0"
+pick_run false u n i x BS TAB ENTER
+assert_pick "Backspace broadens the matches" result "ok:Tunisia"
+pick_run false t u n ENTER
+assert_pick "Enter accepts a unique partial match" result "ok:Tunisia"
+pick_run false n i g e r ENTER
+assert_pick "Enter accepts an exact name that prefixes another" result "ok:Niger"
+pick_run false u n i ENTER
+assert_pick "Enter on an ambiguous query stays open" open "open:Multiple"
+pick_run false z z ENTER
+assert_pick "Enter on an unmatched query stays open" open "open:No"
+pick_run false ENTER
+assert_pick "blank Enter is rejected when a choice is required" open "open:A"
+pick_run true ENTER
+assert_pick "blank Enter means no preference when allowed" result "ok:"
+pick_run true TAB ENTER
+assert_pick "a highlighted name is chosen even with a blank query" result "ok:Albania"
+pick_run true TAB BS ENTER
+assert_pick "editing the query drops the highlight before a blank Enter" result "ok:"
+pick_run false u n ESC
+assert_pick "Esc cancels" result "cancel:"
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 TOTAL=$((PASS + FAIL))
