@@ -62,10 +62,13 @@ vpnmgr/
 │   ├── provider-test.sh        # Live API test harness for provider modules
 │   ├── api-check.sh            # Scheduled API contract check (busybox ash)
 │   ├── api-check-report.sh     # Opens/closes issues from API check results
+│   ├── changelog-notes.sh      # Extracts a version's CHANGELOG.md section
 │   └── api-checks/             # Per-provider assertions for api-check.sh
+├── CHANGELOG.md                # What changed in each release
 └── .github/workflows/
     ├── ci.yml                  # Runs smoke-test on every PR
-    └── api-check.yml           # Daily provider API check
+    ├── api-check.yml           # Daily provider API check
+    └── release.yml             # Tags and publishes each release from main
 ```
 
 ## Development

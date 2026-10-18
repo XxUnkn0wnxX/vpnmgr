@@ -107,8 +107,15 @@ Routers install and update straight from `main`, so merging to `main` is the rel
 
 - Branch from `develop` and open PRs into `develop`. No `SCRIPT_VERSION` bump is needed there.
 - Test on a router with `vpnmgr develop`, which reinstalls everything from `develop`.
-- To release, bump `SCRIPT_VERSION` on `develop` and open one PR from `develop` into `main`.
-  CI enforces the bump on that PR.
+- Add a line under `## Unreleased` in `CHANGELOG.md` in any PR that changes what routers get
+  or how providers are maintained.
+- To release, on `develop`: bump `SCRIPT_VERSION`, rename `## Unreleased` in `CHANGELOG.md` to
+  `## vX.Y.Z (YYYY-MM-DD)` and add a new empty `## Unreleased` above it. Then open one PR from
+  `develop` into `main`. CI enforces the bump, and the smoke test fails if the new version has no
+  changelog entries.
+- Merging to `main` runs `.github/workflows/release.yml`, which tags the version and publishes a
+  GitHub release from its changelog section. Run that workflow manually on `main` to publish a
+  release that was missed.
 - If a fix has to go directly to `main`, merge `main` back into `develop` afterwards.
 - No Co-Authored-By trailers in commits
 - Commit style: `type: description` (feat, fix, refactor, docs, chore)
@@ -133,12 +140,15 @@ vpnmgr/
 │   ├── provider-test.sh         # Live API test harness
 │   ├── api-check.sh             # Scheduled API contract check (busybox ash, container only)
 │   ├── api-check-report.sh      # Issue open/close logic for the API check workflow
+│   ├── changelog-notes.sh       # Prints one version's CHANGELOG.md section
 │   └── api-checks/              # Per-provider assertions + template.sh
 ├── .claude/
 │   └── commands/                # Skill files (used by Claude Code)
 ├── .github/workflows/
 │   ├── ci.yml                   # Smoke test + version bump check
-│   └── api-check.yml            # Daily API check, weekly handshake
+│   ├── api-check.yml            # Daily API check, weekly handshake
+│   └── release.yml              # Tags + publishes a GitHub release on version change
+├── CHANGELOG.md                 # Per-release changes; Unreleased section on develop
 ├── CLAUDE.md                    # This file
 └── README.md
 ```

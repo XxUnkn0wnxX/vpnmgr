@@ -237,12 +237,12 @@ Exit codes: `0` pass, `1` contract broken, `2` inconclusive, `3` environment err
 2. Set `# Status: UNTESTED` on line 3
 3. Implement all 17 functions
 4. Copy `scripts/api-checks/template.sh` to `scripts/api-checks/<name>.sh`, rename the function to `api_check_<name>` and assert the response fields the provider reads
-5. Bump `SCRIPT_VERSION` in `vpnmgr.sh` (CI will reject the PR if you don't — see core-script skill for semver guidance)
+5. Add a line under `## Unreleased` in `CHANGELOG.md`. Don't bump `SCRIPT_VERSION`: that happens once per release on `develop` (see `CLAUDE.md`, Branch workflow)
 6. Run `sh -n providers/provider_<name>.sh` — must be clean
 7. Run `bash scripts/smoke-test.sh` — every test must pass
 8. Run `bash scripts/provider-test.sh <name>` — all network functions must pass
 9. Run `scripts/api-check.sh <name> --handshake` in the container (command above) — must exit 0
-10. Open a PR — CI enforces the smoke test, the version bump check and the API check
+10. Open a PR into `develop` — CI enforces the smoke test and the API check
 11. Once the PR's API check passes, set `# Status: API_TESTED`
 12. Once tested end-to-end on a real router with a live account, update `# Status: ACTIVE`
 
@@ -251,7 +251,7 @@ Exit codes: `0` pass, `1` contract broken, `2` inconclusive, `3` environment err
 Any change to a provider — API endpoint, config format, function logic — MUST:
 - Reset its `# Status:` to `API_TESTED` (API check passes on the PR) or `UNTESTED` (it does not) until verified on a real router with a live account. This applies even to small changes like adding a flag to a curl call.
 - Update `scripts/api-checks/<name>.sh` if the change alters which endpoints or response fields the provider depends on.
-- Bump `SCRIPT_VERSION` in `vpnmgr.sh` — CI will reject the PR otherwise.
+- Add a line under `## Unreleased` in `CHANGELOG.md`. The `SCRIPT_VERSION` bump happens at release, not in this PR.
 
 ## Reference implementations
 
