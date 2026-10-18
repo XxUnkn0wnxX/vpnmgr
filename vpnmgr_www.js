@@ -735,7 +735,13 @@ $j.fn.serializeObject = function(){
 function ScriptUpdateLayout(){
 	var localver = GetVersionNumber('local');
 	var serverver = GetVersionNumber('server');
-	$j('#vpnmgr_version_local').text(localver);
+	var source = custom_settings.vpnmgr_version_source;
+	if(typeof source != 'undefined' && source != null && source != ''){
+		$j('#vpnmgr_version_local').text(localver+' ('+source+')');
+	}
+	else{
+		$j('#vpnmgr_version_local').text(localver);
+	}
 	
 	if (localver != serverver && serverver != 'N/A'){
 		$j('#vpnmgr_version_server').text('Updated version available: '+serverver);
