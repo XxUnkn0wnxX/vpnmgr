@@ -49,7 +49,7 @@ while IFS= read -r -d '' f; do
 done < <(find "${REPO_ROOT}/providers" -name '*.sh' -print0 2>/dev/null | sort -z)
 
 # The API check runs under busybox ash in CI, so it is held to the same rules.
-SHELL_SCRIPTS+=(scripts/api-check.sh scripts/api-check-report.sh)
+SHELL_SCRIPTS+=(scripts/api-check.sh scripts/api-check-report.sh scripts/changelog-notes.sh)
 while IFS= read -r -d '' f; do
     SHELL_SCRIPTS+=("${f#${REPO_ROOT}/}")
 done < <(find "${REPO_ROOT}/scripts/api-checks" -name '*.sh' -print0 2>/dev/null | sort -z)
@@ -687,6 +687,32 @@ else
     fail "Record_Install_Source: plain update left a stale record"
 fi
 rm -rf "$_IS_DIR"
+
+# ---------------------------------------------------------------------------
+# Section 14: Changelog
+#
+# The release workflow publishes the current SCRIPT_VERSION's CHANGELOG.md
+# section as the GitHub release notes, so that section must exist before the
+# version bump reaches main.
+# ---------------------------------------------------------------------------
+section "14. Changelog"
+
+_cl_version=$(grep -m1 'SCRIPT_VERSION=' "${REPO_ROOT}/vpnmgr.sh" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+')
+if _cl_notes=$(sh "${REPO_ROOT}/scripts/changelog-notes.sh" "$_cl_version" 2>&1); then
+    pass "CHANGELOG.md has entries for ${_cl_version}"
+    if grep -q '^## ' <<< "$_cl_notes"; then
+        fail "CHANGELOG.md: ${_cl_version} notes run into another version's section"
+    else
+        pass "CHANGELOG.md: ${_cl_version} notes stop at the next section"
+    fi
+else
+    fail "CHANGELOG.md has no entries for ${_cl_version} — add them before bumping SCRIPT_VERSION"
+fi
+if grep -q '^## Unreleased$' "${REPO_ROOT}/CHANGELOG.md"; then
+    pass "CHANGELOG.md has an Unreleased section"
+else
+    fail "CHANGELOG.md is missing its '## Unreleased' section"
+fi
 
 # ---------------------------------------------------------------------------
 # Summary
