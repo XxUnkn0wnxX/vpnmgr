@@ -2,11 +2,14 @@
 
 Changes that reach routers, and changes to how providers are maintained. Each release is published as a [GitHub release](https://github.com/h0me5k1n/vpnmgr/releases) from its section below.
 
-Add entries under **Unreleased** in the same PR as the change. At release, rename that heading to the new version and date, and start a new empty **Unreleased** section.
-
 Versions before v3.4.0 have no entries here; see the [commit history](https://github.com/h0me5k1n/vpnmgr/commits/main).
 
-## Unreleased
+<!--
+Contributors: record changes in the same PR as the change, under a
+"## Unreleased" heading at the top of the list (add the heading if it isn't
+there). At release it is renamed to the version and date. Never leave an
+empty "## Unreleased" heading; the smoke test rejects one.
+-->
 
 ## v3.4.0 (2026-10-18)
 
