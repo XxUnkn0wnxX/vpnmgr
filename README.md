@@ -53,7 +53,7 @@ vpnmgr/
 │   └── detect.js               # LAN detection helper
 ├── providers/                  # Provider sub-scripts
 │   ├── provider_nordvpn.sh     # NordVPN — active
-│   ├── provider_pia.sh         # PIA — untested
+│   ├── provider_pia.sh         # PIA — API tested
 │   ├── provider_surfshark.sh   # Surfshark — API tested
 │   ├── provider_wevpn.sh       # WeVPN — deprecated
 │   └── provider_template.sh   # Template for new providers

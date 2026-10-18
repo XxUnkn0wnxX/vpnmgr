@@ -1,6 +1,6 @@
 #!/bin/sh
 # PIA (Private Internet Access) provider module for vpnmgr
-# Status: UNTESTED — rewritten to use PIA JSON API; not yet verified on a live account
+# Status: API_TESTED
 # Display: Private Internet Access (PIA)
 # Config: PIA
 #

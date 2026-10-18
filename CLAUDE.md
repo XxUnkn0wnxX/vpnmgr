@@ -124,7 +124,7 @@ vpnmgr/
 ├── www/                         # Bundled web assets
 ├── providers/
 │   ├── provider_nordvpn.sh      # ACTIVE
-│   ├── provider_pia.sh          # UNTESTED
+│   ├── provider_pia.sh          # API_TESTED
 │   ├── provider_surfshark.sh    # API_TESTED
 │   ├── provider_wevpn.sh        # DEPRECATED
 │   └── provider_template.sh     # Template for new providers

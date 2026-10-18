@@ -505,9 +505,13 @@ _ac_desc(){
 # credentials. Reaching AUTH_FAILED proves the address, port, protocol, CA,
 # and tls-auth key/direction/digest. It does not prove the data cipher, which
 # is only negotiated after a successful login.
+#
+# _ac_handshake protocol [nocrl]
+# nocrl leaves out crl-verify; see ac_handshake for why.
 # ---------------------------------------------------------------------------
 _ac_handshake(){
 	_ach_prot="$1"
+	_ach_crl="${2:-crl}"
 	_ach_conf="$AC_WORK/probe_${_ach_prot}.conf"
 	_ach_log="$AC_WORK/probe_${_ach_prot}.log"
 	_ach_hmac="$("provider_${AC_PROVIDER}_get_hmac")"
@@ -532,7 +536,8 @@ _ac_handshake(){
 				3)   printf 'tls-crypt %s\n' "$_ach_static" ;;
 			esac
 		fi
-		[ -s /jffs/openvpn/vpn_crt_client1_crl ] && printf 'crl-verify /jffs/openvpn/vpn_crt_client1_crl\n'
+		[ "$_ach_crl" = "crl" ] && [ -s /jffs/openvpn/vpn_crt_client1_crl ] \
+			&& printf 'crl-verify /jffs/openvpn/vpn_crt_client1_crl\n'
 		printf 'remote-cert-tls server\n'
 		printf 'auth-user-pass %s\nauth-retry none\nauth-nocache\n' "$AC_WORK/probe_up"
 		printf 'connect-retry-max 1\nconnect-timeout 15\nserver-poll-timeout 15\nhand-window 20\n'
@@ -576,6 +581,22 @@ ac_handshake(){
 		sleep "$AC_RETRY_DELAY"
 		_ac_handshake "$_ah_prot"
 	fi
+
+	# The container's OpenSSL 3 rejects some CRLs that the OpenSSL 1.1.1 on
+	# current Merlin firmware loads without complaint (PIA's, as of 2026-10:
+	# verified on a router). If the CRL could not be read and the handshake
+	# succeeds without it, routers are fine today, so warn instead of failing.
+	if [ "$AC_HS_RESULT" = "hard" ] \
+		&& grep -Eq 'cannot read CRL|CRL not loaded' "$AC_WORK/probe_${_ah_prot}.log"; then
+		_ac_handshake "$_ah_prot" nocrl
+		if [ "$AC_HS_RESULT" = "pass" ]; then
+			ac_warn "handshake $_ah_prot — CRL unreadable by OpenSSL 3; reached AUTH_FAILED without it. Works with routers' OpenSSL 1.1.1, will break if the firmware moves to OpenSSL 3"
+			eval "AC_HS_$_ah_prot=\"pass\""
+			return 0
+		fi
+		AC_MSG="CRL unreadable by OpenSSL 3, and the handshake still fails without it: $AC_MSG"
+	fi
+
 	eval "AC_HS_$_ah_prot=\"\$AC_HS_RESULT\""
 	case "$AC_HS_RESULT" in
 		pass) ac_pass "handshake $_ah_prot — reached AUTH_FAILED at $AC_OVPN_ADDR:$AC_OVPN_PORT" ;;
