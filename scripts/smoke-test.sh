@@ -611,6 +611,84 @@ pick_run false u n ESC
 assert_pick "Esc cancels" result "cancel:"
 
 # ---------------------------------------------------------------------------
+# Section 13: Install source recording (offline)
+#
+# "vpnmgr develop" pins the install to the commit the branch resolves to and
+# records "<branch>@<commit>" for the CLI header and WebUI; installs from main
+# clear it. Same extraction approach as section 10, with curl stubbed and the
+# custom settings file redirected to a temp file.
+# ---------------------------------------------------------------------------
+section "13. Install source recording (offline)"
+
+_IS_DIR="$(mktemp -d)"
+_IS_EXTRACT="$(mktemp)"
+for _is_fn in Set_Version_Custom_Settings Pin_Script_Repo Record_Install_Source; do
+    sed -n "/^${_is_fn}(){/,/^}/p" "${REPO_ROOT}/vpnmgr.sh"
+done | sed "s|/usr/sbin/curl|_is_curl|g; s|/jffs/addons/custom_settings.txt|${_IS_DIR}/custom_settings.txt|g" > "$_IS_EXTRACT"
+# shellcheck source=/dev/null
+. "$_IS_EXTRACT"
+rm -f "$_IS_EXTRACT"
+
+SCRIPT_NAME="vpnmgr"
+SCRIPT_SOURCE_FILE="${_IS_DIR}/.install_source"
+_IS_SETTINGS="${_IS_DIR}/custom_settings.txt"
+_IS_REPLY=""
+_is_curl() { printf '%s' "$_IS_REPLY"; }
+Print_Output() { :; }
+printf 'vpnmgr_version_local v9.9.9\nother_addon_setting 1\n' > "$_IS_SETTINGS"
+
+_IS_REPLY="0123456789abcdef0123456789abcdef01234567"
+Pin_Script_Repo develop
+assert_eq "Pin_Script_Repo: downloads pinned to the resolved commit" \
+    "https://raw.githubusercontent.com/h0me5k1n/vpnmgr/0123456789abcdef0123456789abcdef01234567" "$SCRIPT_REPO"
+assert_eq "Pin_Script_Repo: source is branch@short commit" "develop@0123456" "$SCRIPT_SOURCE"
+
+Record_Install_Source
+assert_eq "Record_Install_Source: develop install recorded for the CLI header" \
+    "develop@0123456" "$(cat "$SCRIPT_SOURCE_FILE" 2>/dev/null)"
+assert_eq "Record_Install_Source: develop install recorded for the WebUI" \
+    "vpnmgr_version_source develop@0123456" "$(grep '^vpnmgr_version_source ' "$_IS_SETTINGS")"
+assert_eq "Record_Install_Source: other settings untouched" \
+    "2" "$(grep -c '^vpnmgr_version_local v9.9.9$\|^other_addon_setting 1$' "$_IS_SETTINGS")"
+
+# The WebUI settings merge skips keys containing "version"; the source key
+# must be one of them or it would be merged into the config and deleted.
+if grep 'vpnmgr_' "$_IS_SETTINGS" | grep -v 'version' | grep -q 'source'; then
+    fail "vpnmgr_version_source would be picked up by Conf_FromSettings"
+else
+    pass "vpnmgr_version_source is left alone by Conf_FromSettings"
+fi
+
+Record_Install_Source
+assert_eq "Record_Install_Source: re-recording does not duplicate the setting" \
+    "1" "$(grep -c '^vpnmgr_version_source ' "$_IS_SETTINGS")"
+
+_IS_REPLY='{"message": "API rate limit exceeded"}'
+Pin_Script_Repo develop
+assert_eq "Pin_Script_Repo: lookup failure falls back to the branch" \
+    "https://raw.githubusercontent.com/h0me5k1n/vpnmgr/develop" "$SCRIPT_REPO"
+assert_eq "Pin_Script_Repo: lookup failure is shown as unknown" "develop@unknown" "$SCRIPT_SOURCE"
+
+_IS_REPLY="89abcdef0123456789abcdef0123456789abcdef"
+Pin_Script_Repo main
+Record_Install_Source
+if [[ ! -f "$SCRIPT_SOURCE_FILE" ]] && ! grep -q '^vpnmgr_version_source ' "$_IS_SETTINGS"; then
+    pass "Record_Install_Source: install from main clears the record"
+else
+    fail "Record_Install_Source: install from main left a record behind"
+fi
+
+SCRIPT_SOURCE=""
+printf 'develop@0123456\n' > "$SCRIPT_SOURCE_FILE"
+Record_Install_Source
+if [[ ! -f "$SCRIPT_SOURCE_FILE" ]]; then
+    pass "Record_Install_Source: plain update (no pinned source) clears the record"
+else
+    fail "Record_Install_Source: plain update left a stale record"
+fi
+rm -rf "$_IS_DIR"
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 TOTAL=$((PASS + FAIL))
