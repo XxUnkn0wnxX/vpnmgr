@@ -13,15 +13,20 @@
 #
 # Status values (line 3 of every provider file — read by scripts/provider-test.sh):
 #   ACTIVE       — provider is maintained and verified working with a live account
-#   UNTESTED     — implementation complete but not yet verified on a real router/account;
+#   API_TESTED   — scripts/api-check.sh passes with --handshake: endpoints, response
+#                  contract, generated config and an OpenVPN handshake up to the login
+#                  step are verified, and re-checked on a schedule. Not yet connected
+#                  with a live account. Requires scripts/api-checks/<name>.sh.
+#   UNTESTED     — implementation complete but nothing verified;
 #                  API tests still run, failures are expected until confirmed working
 #   UNMAINTAINED — provider was functional but is no longer actively maintained;
 #                  API tests still run but failures may occur
 #   DEPRECATED   — provider service is offline; only static tests run in provider-test.sh
 #   TEMPLATE     — not a real provider; provider-test.sh will exit immediately
 #
-# Rule: any change to a provider resets its status to UNTESTED until the change
-# has been tested end-to-end with a live account on a real router.
+# Rule: any change to a provider resets its status to API_TESTED if the API check
+# passes on the pull request, otherwise to UNTESTED. It returns to ACTIVE only once
+# the change has been tested end-to-end with a live account on a real router.
 
 ##########         Shellcheck directives     ##########
 # shellcheck disable=SC2039
@@ -57,7 +62,10 @@ provider_template_get_comp(){
 }
 
 # provider_template_get_hmac
-# Prints the HMAC authentication mode value (0/1/2/3).
+# Prints the firmware's TLS control channel mode (nvram vpn_clientX_hmac):
+#   -1 disabled   0 tls-auth incoming   1 tls-auth outgoing   2 tls-auth bi-directional
+#    3 tls-crypt  4 tls-crypt-v2
+# Anything other than -1 needs write_certs to write a static key.
 provider_template_get_hmac(){
 	printf "1\n"
 }

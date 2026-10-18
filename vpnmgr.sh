@@ -30,7 +30,7 @@
 
 ### Start of script variables ###
 readonly SCRIPT_NAME="vpnmgr"
-readonly SCRIPT_VERSION="v3.3.1"
+readonly SCRIPT_VERSION="v3.4.0"
 SCRIPT_BRANCH="main"
 SCRIPT_REPO="https://raw.githubusercontent.com/h0me5k1n/$SCRIPT_NAME/$SCRIPT_BRANCH"
 readonly SCRIPT_DIR="/jffs/addons/$SCRIPT_NAME.d"
@@ -41,6 +41,8 @@ readonly SCRIPT_WEBPAGE_DIR="$(readlink /www/user)"
 readonly SCRIPT_WEB_DIR="$SCRIPT_WEBPAGE_DIR/$SCRIPT_NAME"
 readonly SCRIPT_WWW_DIR="$SCRIPT_DIR/www"
 readonly SCRIPT_FILES_VERSION="$SCRIPT_DIR/.files_version"
+readonly SCRIPT_SOURCE_FILE="$SCRIPT_DIR/.install_source"
+SCRIPT_SOURCE=""
 [ -z "$(nvram get odmpid)" ] && ROUTER_MODEL=$(nvram get productid) || ROUTER_MODEL=$(nvram get odmpid)
 GLOBAL_VPN_NO=""
 GLOBAL_VPN_PROVIDER=""
@@ -163,6 +165,16 @@ Set_Version_Custom_Settings(){
 				echo "vpnmgr_version_local $2" >> "$SETTINGSFILE"
 			fi
 		;;
+		source)
+			# Shown beside the version in the WebUI. The key must contain
+			# "version" so Conf_FromSettings keeps it rather than merging it.
+			if [ -f "$SETTINGSFILE" ]; then
+				sed -i '/^vpnmgr_version_source /d' "$SETTINGSFILE"
+			fi
+			if [ -n "$2" ]; then
+				echo "vpnmgr_version_source $2" >> "$SETTINGSFILE"
+			fi
+		;;
 		server)
 			if [ -f "$SETTINGSFILE" ]; then
 				if [ "$(grep -c "vpnmgr_version_server" $SETTINGSFILE)" -gt 0 ]; then
@@ -177,6 +189,35 @@ Set_Version_Custom_Settings(){
 			fi
 		;;
 	esac
+}
+
+# Pin_Script_Repo branch
+# Points SCRIPT_REPO at the commit the branch currently resolves to, so every
+# file in the install comes from that one commit even if the branch moves
+# meanwhile, and sets SCRIPT_SOURCE to "<branch>@<short commit>".
+Pin_Script_Repo(){
+	_psr_sha="$(/usr/sbin/curl -fsL --retry 3 -H 'Accept: application/vnd.github.sha' \
+		"https://api.github.com/repos/h0me5k1n/$SCRIPT_NAME/commits/$1")"
+	if printf '%s' "$_psr_sha" | grep -Eq '^[0-9a-f]{40}$'; then
+		SCRIPT_REPO="https://raw.githubusercontent.com/h0me5k1n/$SCRIPT_NAME/$_psr_sha"
+		SCRIPT_SOURCE="$1@$(printf '%s' "$_psr_sha" | cut -c1-7)"
+	else
+		Print_Output true "Could not look up the latest $1 commit - installing from the branch instead" "$WARN"
+		SCRIPT_REPO="https://raw.githubusercontent.com/h0me5k1n/$SCRIPT_NAME/$1"
+		SCRIPT_SOURCE="$1@unknown"
+	fi
+}
+
+# Records where the script just installed came from, for the CLI header and
+# WebUI. Installs from main show only the version, so the record is removed.
+Record_Install_Source(){
+	if [ -n "$SCRIPT_SOURCE" ] && [ "${SCRIPT_SOURCE%%@*}" != "main" ]; then
+		printf '%s\n' "$SCRIPT_SOURCE" > "$SCRIPT_SOURCE_FILE"
+		Set_Version_Custom_Settings source "$SCRIPT_SOURCE"
+	else
+		rm -f "$SCRIPT_SOURCE_FILE"
+		Set_Version_Custom_Settings source ""
+	fi
 }
 
 Update_Check(){
@@ -226,7 +267,10 @@ Update_Version(){
 					Update_File vpnmgr_www.asp
 					Update_Addon_Files "$serverver"
 					printf "\\n"
-					/usr/sbin/curl -fsL --retry 3 "$SCRIPT_REPO/$SCRIPT_NAME.sh" -o "/jffs/scripts/$SCRIPT_NAME" && Print_Output true "$SCRIPT_NAME successfully updated"
+					if /usr/sbin/curl -fsL --retry 3 "$SCRIPT_REPO/$SCRIPT_NAME.sh" -o "/jffs/scripts/$SCRIPT_NAME"; then
+						Print_Output true "$SCRIPT_NAME successfully updated"
+						Record_Install_Source
+					fi
 					chmod 0755 "/jffs/scripts/$SCRIPT_NAME"
 					Set_Version_Custom_Settings local "$serverver"
 					Set_Version_Custom_Settings server "$serverver"
@@ -254,7 +298,10 @@ Update_Version(){
 		Update_File web-assets
 		Update_File vpnmgr_www.asp
 		Update_Addon_Files "$serverver"
-		/usr/sbin/curl -fsL --retry 3 "$SCRIPT_REPO/$SCRIPT_NAME.sh" -o "/jffs/scripts/$SCRIPT_NAME" && Print_Output true "$SCRIPT_NAME successfully updated"
+		if /usr/sbin/curl -fsL --retry 3 "$SCRIPT_REPO/$SCRIPT_NAME.sh" -o "/jffs/scripts/$SCRIPT_NAME"; then
+			Print_Output true "$SCRIPT_NAME successfully updated"
+			Record_Install_Source
+		fi
 		chmod 0755 "/jffs/scripts/$SCRIPT_NAME"
 		Set_Version_Custom_Settings local "$serverver"
 		Set_Version_Custom_Settings server "$serverver"
@@ -2153,6 +2200,9 @@ ScriptHeader(){
 	printf "${BOLD}##          |_|                       |___/          ##${CLEARFORMAT}\\n"
 	printf "${BOLD}##                                                   ##${CLEARFORMAT}\\n"
 	printf "${BOLD}##                 %s on %-11s             ##${CLEARFORMAT}\\n" "$SCRIPT_VERSION" "$ROUTER_MODEL"
+	if [ -f "$SCRIPT_SOURCE_FILE" ]; then
+		printf "${BOLD}##                 from %-29s##${CLEARFORMAT}\\n" "$(cat "$SCRIPT_SOURCE_FILE")"
+	fi
 	printf "${BOLD}##                                                   ##${CLEARFORMAT}\\n"
 	printf "${BOLD}##       https://github.com/h0me5k1n/vpnmgr          ##${CLEARFORMAT}\\n"
 	printf "${BOLD}##                                                   ##${CLEARFORMAT}\\n"
@@ -2672,6 +2722,7 @@ Menu_Uninstall(){
 	SETTINGSFILE="/jffs/addons/custom_settings.txt"
 	sed -i '/vpnmgr_version_local/d' "$SETTINGSFILE"
 	sed -i '/vpnmgr_version_server/d' "$SETTINGSFILE"
+	sed -i '/vpnmgr_version_source/d' "$SETTINGSFILE"
 	
 	rm -rf "$SCRIPT_WEB_DIR" 2>/dev/null
 	rm -rf "$SCRIPT_DIR" 2>/dev/null
@@ -2912,13 +2963,13 @@ case "$1" in
 	;;
 	develop)
 		SCRIPT_BRANCH="develop"
-		SCRIPT_REPO="https://raw.githubusercontent.com/h0me5k1n/$SCRIPT_NAME/$SCRIPT_BRANCH"
+		Pin_Script_Repo "$SCRIPT_BRANCH"
 		Update_Version force
 		exit 0
 	;;
 	stable)
 		SCRIPT_BRANCH="main"
-		SCRIPT_REPO="https://raw.githubusercontent.com/h0me5k1n/$SCRIPT_NAME/$SCRIPT_BRANCH"
+		Pin_Script_Repo "$SCRIPT_BRANCH"
 		Update_Version force
 		exit 0
 	;;
