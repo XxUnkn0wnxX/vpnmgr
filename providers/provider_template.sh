@@ -62,7 +62,10 @@ provider_template_get_comp(){
 }
 
 # provider_template_get_hmac
-# Prints the HMAC authentication mode value (0/1/2/3).
+# Prints the firmware's TLS control channel mode (nvram vpn_clientX_hmac):
+#   -1 disabled   0 tls-auth incoming   1 tls-auth outgoing   2 tls-auth bi-directional
+#    3 tls-crypt  4 tls-crypt-v2
+# Anything other than -1 needs write_certs to write a static key.
 provider_template_get_hmac(){
 	printf "1\n"
 }

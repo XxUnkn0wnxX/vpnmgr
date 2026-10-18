@@ -57,7 +57,9 @@ provider_<name>_get_ovpn()
 # OpenVPN compression setting ("adaptive", "no", "-1" for OVPN-file default)
 provider_<name>_get_comp()
 
-# TLS auth key direction (0, 1, or "" if tls-auth not used)
+# TLS control channel mode, as the firmware's vpn_clientX_hmac setting:
+# -1 disabled, 0/1 tls-auth key direction, 2 tls-auth bi-directional,
+# 3 tls-crypt, 4 tls-crypt-v2. Anything but -1 needs write_certs to write a static key.
 provider_<name>_get_hmac()
 
 # Short human-readable label for the server (input to get_desc)

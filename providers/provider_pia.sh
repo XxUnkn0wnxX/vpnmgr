@@ -257,8 +257,9 @@ provider_pia_get_comp(){
 }
 
 # provider_pia_get_hmac
+# PIA configs use no tls-auth key, so tls-auth is disabled.
 provider_pia_get_hmac(){
-	printf "0"
+	printf -- "-1"
 }
 
 # provider_pia_get_short_name server_id addr
