@@ -108,11 +108,12 @@ Routers install and update straight from `main`, so merging to `main` is the rel
 - Branch from `develop` and open PRs into `develop`. No `SCRIPT_VERSION` bump is needed there.
 - Test on a router with `vpnmgr develop`, which reinstalls everything from `develop`.
 - Add a line under `## Unreleased` in `CHANGELOG.md` in any PR that changes what routers get
-  or how providers are maintained.
-- To release, on `develop`: bump `SCRIPT_VERSION`, rename `## Unreleased` in `CHANGELOG.md` to
-  `## vX.Y.Z (YYYY-MM-DD)` and add a new empty `## Unreleased` above it. Then open one PR from
-  `develop` into `main`. CI enforces the bump, and the smoke test fails if the new version has no
-  changelog entries.
+  or how providers are maintained. Add that heading above the latest version if it isn't there;
+  never leave it empty (the smoke test rejects an empty one).
+- To release, on `develop`: bump `SCRIPT_VERSION` and rename `## Unreleased` in `CHANGELOG.md`
+  to `## vX.Y.Z (YYYY-MM-DD)`. Don't add a new `Unreleased` heading; the next PR with an entry
+  does that. Then open one PR from `develop` into `main`. CI enforces the bump, and the smoke
+  test fails if the new version has no changelog entries.
 - Merging to `main` runs `.github/workflows/release.yml`, which tags the version and publishes a
   GitHub release from its changelog section. Run that workflow manually on `main` to publish a
   release that was missed.
@@ -148,7 +149,7 @@ vpnmgr/
 │   ├── ci.yml                   # Smoke test + version bump check
 │   ├── api-check.yml            # Daily API check, weekly handshake
 │   └── release.yml              # Tags + publishes a GitHub release on version change
-├── CHANGELOG.md                 # Per-release changes; Unreleased section on develop
+├── CHANGELOG.md                 # Per-release changes; "Unreleased" only while it has entries
 ├── CLAUDE.md                    # This file
 └── README.md
 ```

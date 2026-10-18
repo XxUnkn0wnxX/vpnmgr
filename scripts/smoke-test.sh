@@ -708,10 +708,14 @@ if _cl_notes=$(sh "${REPO_ROOT}/scripts/changelog-notes.sh" "$_cl_version" 2>&1)
 else
     fail "CHANGELOG.md has no entries for ${_cl_version} — add them before bumping SCRIPT_VERSION"
 fi
-if grep -q '^## Unreleased$' "${REPO_ROOT}/CHANGELOG.md"; then
-    pass "CHANGELOG.md has an Unreleased section"
+# "Unreleased" exists only while it has entries; an empty one directly above
+# the latest release reads as if that release were unreleased.
+if ! grep -q '^## Unreleased$' "${REPO_ROOT}/CHANGELOG.md"; then
+    pass "CHANGELOG.md: no Unreleased section (nothing pending)"
+elif sh "${REPO_ROOT}/scripts/changelog-notes.sh" Unreleased >/dev/null 2>&1; then
+    pass "CHANGELOG.md: Unreleased section has entries"
 else
-    fail "CHANGELOG.md is missing its '## Unreleased' section"
+    fail "CHANGELOG.md: empty '## Unreleased' heading — remove it, or add the entries it is for"
 fi
 
 # ---------------------------------------------------------------------------

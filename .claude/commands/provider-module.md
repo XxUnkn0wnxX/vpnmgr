@@ -237,7 +237,7 @@ Exit codes: `0` pass, `1` contract broken, `2` inconclusive, `3` environment err
 2. Set `# Status: UNTESTED` on line 3
 3. Implement all 17 functions
 4. Copy `scripts/api-checks/template.sh` to `scripts/api-checks/<name>.sh`, rename the function to `api_check_<name>` and assert the response fields the provider reads
-5. Add a line under `## Unreleased` in `CHANGELOG.md`. Don't bump `SCRIPT_VERSION`: that happens once per release on `develop` (see `CLAUDE.md`, Branch workflow)
+5. Add a line under `## Unreleased` in `CHANGELOG.md` (add the heading above the latest version if it isn't there). Don't bump `SCRIPT_VERSION`: that happens once per release on `develop` (see `CLAUDE.md`, Branch workflow)
 6. Run `sh -n providers/provider_<name>.sh` — must be clean
 7. Run `bash scripts/smoke-test.sh` — every test must pass
 8. Run `bash scripts/provider-test.sh <name>` — all network functions must pass
@@ -251,7 +251,7 @@ Exit codes: `0` pass, `1` contract broken, `2` inconclusive, `3` environment err
 Any change to a provider — API endpoint, config format, function logic — MUST:
 - Reset its `# Status:` to `API_TESTED` (API check passes on the PR) or `UNTESTED` (it does not) until verified on a real router with a live account. This applies even to small changes like adding a flag to a curl call.
 - Update `scripts/api-checks/<name>.sh` if the change alters which endpoints or response fields the provider depends on.
-- Add a line under `## Unreleased` in `CHANGELOG.md`. The `SCRIPT_VERSION` bump happens at release, not in this PR.
+- Add a line under `## Unreleased` in `CHANGELOG.md` (add the heading above the latest version if it isn't there). The `SCRIPT_VERSION` bump happens at release, not in this PR.
 
 ## Reference implementations
 
