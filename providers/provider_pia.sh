@@ -23,10 +23,11 @@
 #######################################################
 
 provider_pia_version(){
-	printf "v2.0.0\n"
+	printf "v2.1.0\n"
 }
 
-# Internal: map ISO-3166-1 alpha-2 code → display name for all 91 PIA countries.
+# Internal: map ISO-3166-1 alpha-2 code → display name for PIA countries.
+# Codes not listed here are shown as the bare code; scripts/api-check.sh warns about them.
 _pia_country_name(){
 	case "$1" in
 		AD) printf "Andorra" ;;
@@ -40,19 +41,25 @@ _pia_country_name(){
 		BD) printf "Bangladesh" ;;
 		BE) printf "Belgium" ;;
 		BG) printf "Bulgaria" ;;
+		BM) printf "Bermuda" ;;
+		BN) printf "Brunei" ;;
 		BO) printf "Bolivia" ;;
 		BR) printf "Brazil" ;;
 		BS) printf "Bahamas" ;;
+		BT) printf "Bhutan" ;;
+		BY) printf "Belarus" ;;
 		CA) printf "Canada" ;;
 		CH) printf "Switzerland" ;;
 		CL) printf "Chile" ;;
 		CN) printf "China" ;;
 		CO) printf "Colombia" ;;
 		CR) printf "Costa Rica" ;;
+		CU) printf "Cuba" ;;
 		CY) printf "Cyprus" ;;
 		CZ) printf "Czech Republic" ;;
 		DE) printf "Germany" ;;
 		DK) printf "Denmark" ;;
+		DO) printf "Dominican Republic" ;;
 		DZ) printf "Algeria" ;;
 		EC) printf "Ecuador" ;;
 		EE) printf "Estonia" ;;
@@ -62,10 +69,13 @@ _pia_country_name(){
 		FR) printf "France" ;;
 		GB) printf "United Kingdom" ;;
 		GE) printf "Georgia" ;;
+		GH) printf "Ghana" ;;
 		GL) printf "Greenland" ;;
 		GR) printf "Greece" ;;
 		GT) printf "Guatemala" ;;
+		GU) printf "Guam" ;;
 		HK) printf "Hong Kong" ;;
+		HN) printf "Honduras" ;;
 		HR) printf "Croatia" ;;
 		HU) printf "Hungary" ;;
 		ID) printf "Indonesia" ;;
@@ -75,10 +85,16 @@ _pia_country_name(){
 		IN) printf "India" ;;
 		IS) printf "Iceland" ;;
 		IT) printf "Italy" ;;
+		JE) printf "Jersey" ;;
+		JM) printf "Jamaica" ;;
 		JP) printf "Japan" ;;
+		KE) printf "Kenya" ;;
 		KH) printf "Cambodia" ;;
 		KR) printf "South Korea" ;;
+		KY) printf "Cayman Islands" ;;
 		KZ) printf "Kazakhstan" ;;
+		LA) printf "Laos" ;;
+		LB) printf "Lebanon" ;;
 		LI) printf "Liechtenstein" ;;
 		LK) printf "Sri Lanka" ;;
 		LT) printf "Lithuania" ;;
@@ -89,6 +105,7 @@ _pia_country_name(){
 		MD) printf "Moldova" ;;
 		ME) printf "Montenegro" ;;
 		MK) printf "North Macedonia" ;;
+		MM) printf "Myanmar" ;;
 		MN) printf "Mongolia" ;;
 		MO) printf "Macao" ;;
 		MT) printf "Malta" ;;
@@ -102,7 +119,9 @@ _pia_country_name(){
 		PA) printf "Panama" ;;
 		PE) printf "Peru" ;;
 		PH) printf "Philippines" ;;
+		PK) printf "Pakistan" ;;
 		PL) printf "Poland" ;;
+		PR) printf "Puerto Rico" ;;
 		PT) printf "Portugal" ;;
 		QA) printf "Qatar" ;;
 		RO) printf "Romania" ;;
@@ -112,11 +131,14 @@ _pia_country_name(){
 		SG) printf "Singapore" ;;
 		SI) printf "Slovenia" ;;
 		SK) printf "Slovakia" ;;
+		TH) printf "Thailand" ;;
 		TR) printf "Turkey" ;;
+		TT) printf "Trinidad and Tobago" ;;
 		TW) printf "Taiwan" ;;
 		UA) printf "Ukraine" ;;
 		US) printf "United States" ;;
 		UY) printf "Uruguay" ;;
+		UZ) printf "Uzbekistan" ;;
 		VE) printf "Venezuela" ;;
 		VN) printf "Vietnam" ;;
 		ZA) printf "South Africa" ;;
@@ -292,10 +314,10 @@ provider_pia_get_country_names(){
 # provider_pia_get_country_id country_name
 # Returns the ISO code for the given display name (e.g. "United Kingdom" → "GB").
 provider_pia_get_country_id(){
-	for _code in AD AE AL AM AR AT AU BA BD BE BG BO BR BS CA CH CL CN CO CR CY CZ DE \
-	             DK DZ EC EE EG ES FI FR GB GE GL GR GT HK HR HU ID IE IL IM IN IS IT \
-	             JP KH KR KZ LI LK LT LU LV MA MC MD ME MK MN MO MT MX MY NG NL NO NP \
-	             NZ PA PE PH PL PT QA RO RS SA SE SG SI SK TR TW UA US UY VE VN ZA; do
+	# Codes come from the server data so countries PIA adds later still resolve,
+	# including any that _pia_country_name has no display name for yet.
+	_psd="$SCRIPT_DIR/pia_serverdata"
+	for _code in $(jq -r '[.regions[].country] | unique | .[]' "$_psd"); do
 		if [ "$(_pia_country_name "$_code")" = "$1" ]; then
 			printf '%s' "$_code"
 			return 0
