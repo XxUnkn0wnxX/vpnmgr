@@ -1,0 +1,61 @@
+name: Release
+
+# Tags and publishes a GitHub release when a merge to main changes
+# SCRIPT_VERSION, using that version's section of CHANGELOG.md as the notes.
+# Run it manually on main to publish a release that was missed.
+
+on:
+  push:
+    branches: [main]
+    paths: ['vpnmgr.sh']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+
+jobs:
+  release:
+    name: Tag and publish
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read version
+        id: version
+        run: |
+          version=$(grep -m1 'SCRIPT_VERSION=' vpnmgr.sh | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+')
+          [ -n "$version" ] || { echo "::error::Could not read SCRIPT_VERSION from vpnmgr.sh"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Version: $version"
+
+      - name: Skip if already released
+        id: exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            echo "Release $VERSION already exists, nothing to do."
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Extract release notes
+        if: steps.exists.outputs.exists == 'false'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: sh scripts/changelog-notes.sh "$VERSION" > notes.md
+
+      - name: Publish release
+        if: steps.exists.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          gh release create "$VERSION" --target "$GITHUB_SHA" --title "$VERSION" --notes-file notes.md
+          echo "Published $VERSION at $GITHUB_SHA"

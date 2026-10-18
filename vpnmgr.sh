@@ -30,7 +30,7 @@
 
 ### Start of script variables ###
 readonly SCRIPT_NAME="vpnmgr"
-readonly SCRIPT_VERSION="v3.3.1"
+readonly SCRIPT_VERSION="v3.4.0"
 SCRIPT_BRANCH="main"
 SCRIPT_REPO="https://raw.githubusercontent.com/h0me5k1n/$SCRIPT_NAME/$SCRIPT_BRANCH"
 readonly SCRIPT_DIR="/jffs/addons/$SCRIPT_NAME.d"
@@ -41,6 +41,8 @@ readonly SCRIPT_WEBPAGE_DIR="$(readlink /www/user)"
 readonly SCRIPT_WEB_DIR="$SCRIPT_WEBPAGE_DIR/$SCRIPT_NAME"
 readonly SCRIPT_WWW_DIR="$SCRIPT_DIR/www"
 readonly SCRIPT_FILES_VERSION="$SCRIPT_DIR/.files_version"
+readonly SCRIPT_SOURCE_FILE="$SCRIPT_DIR/.install_source"
+SCRIPT_SOURCE=""
 [ -z "$(nvram get odmpid)" ] && ROUTER_MODEL=$(nvram get productid) || ROUTER_MODEL=$(nvram get odmpid)
 GLOBAL_VPN_NO=""
 GLOBAL_VPN_PROVIDER=""
@@ -139,6 +141,8 @@ Clear_Lock(){
 }
 
 Trap_Exit(){
+	# Restore the terminal if interrupted while the picker has it in raw mode
+	[ -n "$PICK_STTY" ] && stty "$PICK_STTY" 2>/dev/null && printf '\r\033[J'
 	Clear_Lock
 	exit 1
 }
@@ -161,6 +165,16 @@ Set_Version_Custom_Settings(){
 				echo "vpnmgr_version_local $2" >> "$SETTINGSFILE"
 			fi
 		;;
+		source)
+			# Shown beside the version in the WebUI. The key must contain
+			# "version" so Conf_FromSettings keeps it rather than merging it.
+			if [ -f "$SETTINGSFILE" ]; then
+				sed -i '/^vpnmgr_version_source /d' "$SETTINGSFILE"
+			fi
+			if [ -n "$2" ]; then
+				echo "vpnmgr_version_source $2" >> "$SETTINGSFILE"
+			fi
+		;;
 		server)
 			if [ -f "$SETTINGSFILE" ]; then
 				if [ "$(grep -c "vpnmgr_version_server" $SETTINGSFILE)" -gt 0 ]; then
@@ -175,6 +189,35 @@ Set_Version_Custom_Settings(){
 			fi
 		;;
 	esac
+}
+
+# Pin_Script_Repo branch
+# Points SCRIPT_REPO at the commit the branch currently resolves to, so every
+# file in the install comes from that one commit even if the branch moves
+# meanwhile, and sets SCRIPT_SOURCE to "<branch>@<short commit>".
+Pin_Script_Repo(){
+	_psr_sha="$(/usr/sbin/curl -fsL --retry 3 -H 'Accept: application/vnd.github.sha' \
+		"https://api.github.com/repos/h0me5k1n/$SCRIPT_NAME/commits/$1")"
+	if printf '%s' "$_psr_sha" | grep -Eq '^[0-9a-f]{40}$'; then
+		SCRIPT_REPO="https://raw.githubusercontent.com/h0me5k1n/$SCRIPT_NAME/$_psr_sha"
+		SCRIPT_SOURCE="$1@$(printf '%s' "$_psr_sha" | cut -c1-7)"
+	else
+		Print_Output true "Could not look up the latest $1 commit - installing from the branch instead" "$WARN"
+		SCRIPT_REPO="https://raw.githubusercontent.com/h0me5k1n/$SCRIPT_NAME/$1"
+		SCRIPT_SOURCE="$1@unknown"
+	fi
+}
+
+# Records where the script just installed came from, for the CLI header and
+# WebUI. Installs from main show only the version, so the record is removed.
+Record_Install_Source(){
+	if [ -n "$SCRIPT_SOURCE" ] && [ "${SCRIPT_SOURCE%%@*}" != "main" ]; then
+		printf '%s\n' "$SCRIPT_SOURCE" > "$SCRIPT_SOURCE_FILE"
+		Set_Version_Custom_Settings source "$SCRIPT_SOURCE"
+	else
+		rm -f "$SCRIPT_SOURCE_FILE"
+		Set_Version_Custom_Settings source ""
+	fi
 }
 
 Update_Check(){
@@ -224,7 +267,10 @@ Update_Version(){
 					Update_File vpnmgr_www.asp
 					Update_Addon_Files "$serverver"
 					printf "\\n"
-					/usr/sbin/curl -fsL --retry 3 "$SCRIPT_REPO/$SCRIPT_NAME.sh" -o "/jffs/scripts/$SCRIPT_NAME" && Print_Output true "$SCRIPT_NAME successfully updated"
+					if /usr/sbin/curl -fsL --retry 3 "$SCRIPT_REPO/$SCRIPT_NAME.sh" -o "/jffs/scripts/$SCRIPT_NAME"; then
+						Print_Output true "$SCRIPT_NAME successfully updated"
+						Record_Install_Source
+					fi
 					chmod 0755 "/jffs/scripts/$SCRIPT_NAME"
 					Set_Version_Custom_Settings local "$serverver"
 					Set_Version_Custom_Settings server "$serverver"
@@ -252,7 +298,10 @@ Update_Version(){
 		Update_File web-assets
 		Update_File vpnmgr_www.asp
 		Update_Addon_Files "$serverver"
-		/usr/sbin/curl -fsL --retry 3 "$SCRIPT_REPO/$SCRIPT_NAME.sh" -o "/jffs/scripts/$SCRIPT_NAME" && Print_Output true "$SCRIPT_NAME successfully updated"
+		if /usr/sbin/curl -fsL --retry 3 "$SCRIPT_REPO/$SCRIPT_NAME.sh" -o "/jffs/scripts/$SCRIPT_NAME"; then
+			Print_Output true "$SCRIPT_NAME successfully updated"
+			Record_Install_Source
+		fi
 		chmod 0755 "/jffs/scripts/$SCRIPT_NAME"
 		Set_Version_Custom_Settings local "$serverver"
 		Set_Version_Custom_Settings server "$serverver"
@@ -510,6 +559,329 @@ Validate_Number(){
 		return 1
 	fi
 }
+
+### Searchable picker for country/city selection ###
+# The caller puts the candidate names (one per line, already sorted) in
+# PICK_LIST and calls Picker_Choose. State is kept in PICK_* globals rather
+# than passed through subshells, so the INT trap still fires while a key
+# read is pending.
+
+# Picker_Filter [exact]
+# Reads names on stdin and prints those containing $PICK_QUERY, ignoring
+# case, spaces and punctuation. Literal substring match, input order kept.
+# With "exact", prints only names equal to the query after normalising.
+Picker_Filter(){
+	PICKER_Q="$PICK_QUERY" PICKER_MODE="${1:-}" awk '
+		function norm(s){ s=tolower(s); gsub(/[ \t.,_()\/\047-]/,"",s); return s }
+		BEGIN { q=norm(ENVIRON["PICKER_Q"]); exact=(ENVIRON["PICKER_MODE"]=="exact") }
+		{
+			n=norm($0)
+			if(exact){ if(n==q) print }
+			else if(q=="" || index(n,q)) print
+		}
+	'
+}
+
+Picker_Refilter(){
+	PICK_MATCHES="$(printf '%s\n' "$PICK_LIST" | Picker_Filter)"
+	if [ -z "$PICK_MATCHES" ]; then
+		PICK_COUNT=0
+	else
+		PICK_COUNT=$(($(printf '%s\n' "$PICK_MATCHES" | wc -l)))
+	fi
+	PICK_SEL=0
+}
+
+# Picker_Resolve
+# Sets PICK_RESULT and returns 0 if the query identifies exactly one name:
+# a single match, or one name equal to the query (so "Niger" can be chosen
+# even though "Nigeria" also matches).
+Picker_Resolve(){
+	if [ "$PICK_COUNT" -eq 1 ]; then
+		PICK_RESULT="$PICK_MATCHES"
+		return 0
+	fi
+	_pr_exact="$(printf '%s\n' "$PICK_MATCHES" | Picker_Filter exact)"
+	if [ -n "$_pr_exact" ] && [ "$(printf '%s\n' "$_pr_exact" | wc -l)" -eq 1 ]; then
+		PICK_RESULT="$_pr_exact"
+		return 0
+	fi
+	return 1
+}
+
+# Picker_HandleKey token [char]
+# Applies one key to the picker state. No terminal I/O.
+# PICK_SEL is the highlighted match (0 = none); typing always edits the
+# query and clears the highlight, Tab/arrows move it without touching the query.
+Picker_HandleKey(){
+	PICK_MSG=""
+	case "$1" in
+		CHAR)
+			PICK_QUERY="$PICK_QUERY$2"
+			Picker_Refilter
+		;;
+		BS)
+			PICK_QUERY="${PICK_QUERY%?}"
+			Picker_Refilter
+		;;
+		TAB|DOWN)
+			if [ "$PICK_COUNT" -gt 0 ]; then
+				PICK_SEL=$((PICK_SEL % PICK_COUNT + 1))
+			fi
+		;;
+		BTAB|UP)
+			if [ "$PICK_COUNT" -gt 0 ]; then
+				if [ "$PICK_SEL" -le 1 ]; then
+					PICK_SEL="$PICK_COUNT"
+				else
+					PICK_SEL=$((PICK_SEL - 1))
+				fi
+			fi
+		;;
+		ENTER)
+			if [ "$PICK_SEL" -gt 0 ]; then
+				PICK_RESULT="$(printf '%s\n' "$PICK_MATCHES" | sed -n "${PICK_SEL}p")"
+				PICK_DONE="ok"
+			elif [ -z "$PICK_QUERY" ]; then
+				if [ "$PICK_ALLOW_BLANK" = "true" ]; then
+					PICK_RESULT=""
+					PICK_DONE="ok"
+				else
+					PICK_MSG="A selection is required. Type a name, or press Tab to browse."
+				fi
+			elif [ "$PICK_COUNT" -eq 0 ]; then
+				PICK_MSG="No matches. Edit the name, or clear it and press Tab to browse."
+			elif Picker_Resolve; then
+				PICK_DONE="ok"
+			else
+				PICK_MSG="Multiple matches. Keep typing, or press Tab to choose one."
+			fi
+		;;
+		ESC|EOF)
+			PICK_DONE="cancel"
+		;;
+	esac
+	return 0
+}
+
+Picker_ReadByte(){
+	PICK_CHAR="$(dd bs=1 count=1 2>/dev/null; printf x)"
+	PICK_CHAR="${PICK_CHAR%x}"
+}
+
+# Picker_ReadKey
+# Reads one keypress from the terminal (already in raw mode) and sets
+# PICK_KEY to a Picker_HandleKey token, or IGNORE. PICK_CHAR holds the
+# character for CHAR.
+Picker_ReadKey(){
+	Picker_ReadByte
+	case "$PICK_CHAR" in
+		"") PICK_KEY="EOF" ;;
+		"$PICK_C_NL"|"$PICK_C_CR") PICK_KEY="ENTER" ;;
+		"$PICK_C_TAB") PICK_KEY="TAB" ;;
+		"$PICK_C_DEL"|"$PICK_C_BS") PICK_KEY="BS" ;;
+		"$PICK_C_ESC")
+			# Wait briefly for the rest of an escape sequence; none means a bare Esc
+			stty min 0 time 1
+			Picker_ReadByte
+			case "$PICK_CHAR" in
+				"") PICK_KEY="ESC" ;;
+				"["|O)
+					_rk_final=""
+					while true; do
+						Picker_ReadByte
+						[ -z "$PICK_CHAR" ] && break
+						_rk_final="$PICK_CHAR"
+						case "$PICK_CHAR" in
+							[A-Za-z~]) break ;;
+						esac
+					done
+					case "$_rk_final" in
+						A) PICK_KEY="UP" ;;
+						B) PICK_KEY="DOWN" ;;
+						Z) PICK_KEY="BTAB" ;;
+						*) PICK_KEY="IGNORE" ;;
+					esac
+				;;
+				*) PICK_KEY="IGNORE" ;;
+			esac
+			stty min 1 time 0
+		;;
+		[[:cntrl:]]) PICK_KEY="IGNORE" ;;
+		*) PICK_KEY="CHAR" ;;
+	esac
+}
+
+# Picker_Render
+# Redraws the query line and, below it, any message and the visible window
+# of matches, then puts the cursor back at the end of the query.
+Picker_Render(){
+	printf '\r\033[J%s > %s' "$PICK_LABEL" "$PICK_QUERY"
+	_rd_lines=0
+	if [ -n "$PICK_MSG" ]; then
+		printf '\n\033[31m%s\033[0m' "$PICK_MSG"
+		_rd_lines=1
+	fi
+	if [ -n "$PICK_QUERY" ] || [ "$PICK_SEL" -gt 0 ]; then
+		if [ "$PICK_COUNT" -eq 0 ]; then
+			if [ -z "$PICK_MSG" ]; then
+				printf '\n  (no matches)'
+				_rd_lines=$((_rd_lines + 1))
+			fi
+		else
+			printf '%s\n' "$PICK_MATCHES" | awk -v sel="$PICK_SEL" -v rows="$PICK_ROWS" -v cols="$PICK_COLS" -v total="$PICK_COUNT" '
+				BEGIN {
+					top=sel-int(rows/2)
+					if(top>total-rows+1) top=total-rows+1
+					if(top<1) top=1
+				}
+				NR>=top && NR<top+rows {
+					name=substr($0,1,cols-4)
+					if(NR==sel) printf "\n\033[7m> %s\033[0m", name
+					else printf "\n  %s", name
+				}
+				END { if(total>rows) printf "\n  (%d-%d of %d)", top, top+rows-1, total }
+			'
+			if [ "$PICK_COUNT" -gt "$PICK_ROWS" ]; then
+				_rd_lines=$((_rd_lines + PICK_ROWS + 1))
+			else
+				_rd_lines=$((_rd_lines + PICK_COUNT))
+			fi
+		fi
+	fi
+	[ "$_rd_lines" -gt 0 ] && printf '\033[%dA' "$_rd_lines"
+	printf '\r\033[%dC' "$((${#PICK_LABEL} + 3 + ${#PICK_QUERY}))"
+}
+
+# Picker_Select label allow_blank
+# Live type-to-filter picker over PICK_LIST. Sets PICK_RESULT (empty when a
+# blank entry is allowed and chosen).
+# Returns 0 on a choice, 1 if cancelled, 2 if the terminal cannot support it.
+Picker_Select(){
+	if [ ! -t 0 ] || [ ! -t 1 ] || [ "${TERM:-dumb}" = "dumb" ]; then
+		return 2
+	fi
+	PICK_STTY="$(stty -g 2>/dev/null)"
+	[ -z "$PICK_STTY" ] && return 2
+	# isig is left on so that Ctrl+C still reaches the INT trap
+	if ! stty -icanon -echo min 1 time 0 2>/dev/null; then
+		stty "$PICK_STTY" 2>/dev/null
+		PICK_STTY=""
+		return 2
+	fi
+
+	PICK_LABEL="$1"
+	_ps_label_lc="$(printf '%s' "$1" | tr 'A-Z' 'a-z')"
+	PICK_ALLOW_BLANK="$2"
+	PICK_QUERY=""
+	PICK_MSG=""
+	PICK_DONE=""
+	PICK_RESULT=""
+	PICK_C_NL='
+'
+	PICK_C_CR="$(printf '\r')"
+	PICK_C_TAB="$(printf '\t')"
+	PICK_C_ESC="$(printf '\033')"
+	PICK_C_DEL="$(printf '\177')"
+	PICK_C_BS="$(printf '\010')"
+	_ps_size="$(stty size 2>/dev/null)"
+	PICK_ROWS="${_ps_size%% *}"
+	PICK_COLS="${_ps_size##* }"
+	Validate_Number "$PICK_ROWS" || PICK_ROWS=24
+	Validate_Number "$PICK_COLS" || PICK_COLS=80
+	PICK_ROWS=$((PICK_ROWS - 4))
+	[ "$PICK_ROWS" -gt 10 ] && PICK_ROWS=10
+	[ "$PICK_ROWS" -lt 3 ] && PICK_ROWS=3
+	Picker_Refilter
+
+	if [ "$PICK_ALLOW_BLANK" = "true" ]; then
+		printf "\\n${BOLD}Select a %s${CLEARFORMAT} - type to filter, Tab to browse, Enter to confirm (blank for no preference), Esc to cancel\\n" "$_ps_label_lc"
+	else
+		printf "\\n${BOLD}Select a %s${CLEARFORMAT} - type to filter, Tab to browse, Enter to confirm, Esc to cancel\\n" "$_ps_label_lc"
+	fi
+
+	while [ -z "$PICK_DONE" ]; do
+		Picker_Render
+		Picker_ReadKey
+		[ "$PICK_KEY" = "IGNORE" ] || Picker_HandleKey "$PICK_KEY" "$PICK_CHAR"
+	done
+
+	printf '\r\033[J'
+	stty "$PICK_STTY" 2>/dev/null
+	PICK_STTY=""
+	[ "$PICK_DONE" = "cancel" ] && return 1
+	printf '%s: %s\n' "$PICK_LABEL" "${PICK_RESULT:-No preference}"
+	return 0
+}
+
+# Picker_Fallback label allow_blank
+# Line-based equivalent of Picker_Select for terminals that cannot do raw
+# key reads: a numbered list that can be narrowed by typing part of a name.
+# Same PICK_RESULT and return codes as Picker_Select (never returns 2).
+Picker_Fallback(){
+	PICK_QUERY=""
+	PICK_RESULT=""
+	_pf_label_lc="$(printf '%s' "$1" | tr 'A-Z' 'a-z')"
+	Picker_Refilter
+	while true; do
+		printf "\\n${BOLD}Please select a %s:${CLEARFORMAT}\\n" "$_pf_label_lc"
+		printf '%s\n' "$PICK_MATCHES" | awk -v total="$PICK_COUNT" '
+			{ lines[NR]=$0 }
+			END {
+				half=int((total+1)/2)
+				for(i=1;i<=half;i++){
+					printf "  %3d. %-35s", i, lines[i]
+					if(i+half<=total) printf "  %3d. %s", i+half, lines[i+half]
+					printf "\n"
+				}
+			}
+		'
+
+		if [ "$2" = "true" ]; then
+			printf "\\nEnter a number, part of a name to filter, or leave blank for no preference (e to exit):  "
+		else
+			printf "\\nEnter a number, or part of a name to filter (e to exit):  "
+		fi
+		read -r _pf_input || return 1
+
+		if [ "$_pf_input" = "e" ]; then
+			return 1
+		elif [ -z "$_pf_input" ]; then
+			[ "$2" = "true" ] && return 0
+			PICK_QUERY=""
+			Picker_Refilter
+		elif Validate_Number "$_pf_input"; then
+			if [ "$_pf_input" -lt 1 ] || [ "$_pf_input" -gt "$PICK_COUNT" ]; then
+				printf "\\n\\e[31mPlease enter a number between 1 and %s${CLEARFORMAT}\\n" "$PICK_COUNT"
+			else
+				PICK_RESULT="$(printf '%s\n' "$PICK_MATCHES" | sed -n "${_pf_input}p")"
+				return 0
+			fi
+		else
+			PICK_QUERY="$_pf_input"
+			Picker_Refilter
+			if [ "$PICK_COUNT" -eq 0 ]; then
+				printf "\\n\\e[31mNo %s matches '%s'${CLEARFORMAT}\\n" "$_pf_label_lc" "$_pf_input"
+				PICK_QUERY=""
+				Picker_Refilter
+			elif Picker_Resolve; then
+				return 0
+			fi
+		fi
+	done
+}
+
+# Picker_Choose label allow_blank
+Picker_Choose(){
+	Picker_Select "$1" "$2"
+	_pc_rc=$?
+	if [ "$_pc_rc" -eq 2 ]; then
+		Picker_Fallback "$1" "$2"
+		_pc_rc=$?
+	fi
+	return "$_pc_rc"
+}
+### End of searchable picker ###
 
 # ParseSlotSelection raw_input
 # Accepts a single slot ("3"), a range ("1-5"), or a comma list ("1,4,2"),
@@ -1250,7 +1622,7 @@ SetVPNParameters(){
 	vpnprot=""
 	vpntype=""
 	choosecountry=""
-	choosecity=""
+	cityblank=""
 	countryname=""
 	countryid=0
 	cityname=""
@@ -1410,42 +1782,15 @@ SetVPNParameters(){
 	fi
 
 	if [ "$choosecountry" = "true" ]; then
-		LISTCOUNTRIES="$("provider_${vpnprovider_lc}_get_country_names")"
-		[ -z "$LISTCOUNTRIES" ] && Print_Output true "Error, country data for $vpnprovider is missing" "$ERR" && return 1
-		COUNTCOUNTRIES="$(printf '%s\n' "$LISTCOUNTRIES" | wc -l)"
-		while true; do
-			printf "\\n${BOLD}Please select a country:${CLEARFORMAT}\\n"
-			printf '%s\n' "$LISTCOUNTRIES" | awk -v total="$COUNTCOUNTRIES" '
-				{ lines[NR]=$0 }
-				END {
-					half=int((total+1)/2)
-					for(i=1;i<=half;i++){
-						printf "  %3d. %-35s", i, lines[i]
-						if(i+half<=total) printf "  %3d. %s", i+half, lines[i+half]
-						printf "\n"
-					}
-				}
-			'
-
-			printf "\\nChoose an option:  "
-			read -r country_choice
-
-			if [ "$country_choice" = "e" ]; then
-				exitmenu="exit"
-				break
-			elif ! Validate_Number "$country_choice"; then
-				printf "\\n\\e[31mPlease enter a valid number (1-%s)${CLEARFORMAT}\\n" "$COUNTCOUNTRIES"
-			else
-				if [ "$country_choice" -lt 1 ] || [ "$country_choice" -gt "$COUNTCOUNTRIES" ]; then
-					printf "\\n\\e[31mPlease enter a number between 1 and %s${CLEARFORMAT}\\n" "$COUNTCOUNTRIES"
-				else
-					countryname="$(printf '%s\n' "$LISTCOUNTRIES" | sed -n "${country_choice}p")"
-					countryid="$("provider_${vpnprovider_lc}_get_country_id" "$countryname")"
-					printf "\\n"
-					break
-				fi
-			fi
-		done
+		PICK_LIST="$("provider_${vpnprovider_lc}_get_country_names" | sort -f)"
+		[ -z "$PICK_LIST" ] && Print_Output true "Error, country data for $vpnprovider is missing" "$ERR" && return 1
+		if Picker_Choose "Country" false; then
+			countryname="$PICK_RESULT"
+			countryid="$("provider_${vpnprovider_lc}_get_country_id" "$countryname")"
+			printf "\\n"
+		else
+			exitmenu="exit"
+		fi
 
 		if [ "$exitmenu" != "exit" ]; then
 			citycount="$("provider_${vpnprovider_lc}_get_city_count" "$countryname")"
@@ -1454,57 +1799,23 @@ SetVPNParameters(){
 				cityname="$("provider_${vpnprovider_lc}_get_city_names" "$countryname")"
 				cityid="$("provider_${vpnprovider_lc}_get_city_id" "$countryname" "$cityname")"
 			elif [ "$citycount" -gt 1 ]; then
+				# A blank entry means no city preference, unless the provider needs one
 				if "provider_${vpnprovider_lc}_city_required"; then
-					choosecity="true"
+					cityblank="false"
 				else
-					while true; do
-						printf "\\n${BOLD}Would you like to select a city (y/n)?${CLEARFORMAT}  "
-						read -r city_select
-
-						if [ "$city_select" = "e" ]; then
-							exitmenu="exit"
-							break
-						elif [ "$city_select" = "n" ] || [ "$city_select" = "N" ]; then
-							choosecity="false"
-							printf "\\n"
-							break
-						elif [ "$city_select" = "y" ] || [ "$city_select" = "Y" ]; then
-							choosecity="true"
-							break
-						else
-							printf "\\n\\e[31mPlease enter y or n${CLEARFORMAT}\\n"
-						fi
-					done
+					cityblank="true"
+				fi
+				PICK_LIST="$("provider_${vpnprovider_lc}_get_city_names" "$countryname" | sort -f)"
+				if Picker_Choose "City" "$cityblank"; then
+					if [ -n "$PICK_RESULT" ]; then
+						cityname="$PICK_RESULT"
+						cityid="$("provider_${vpnprovider_lc}_get_city_id" "$countryname" "$cityname")"
+					fi
+					printf "\\n"
+				else
+					exitmenu="exit"
 				fi
 			fi
-		fi
-
-		if [ "$choosecity" = "true" ]; then
-			LISTCITIES="$("provider_${vpnprovider_lc}_get_city_names" "$countryname")"
-			COUNTCITIES="$(printf '%s\n' "$LISTCITIES" | wc -l)"
-			while true; do
-				printf "\\n${BOLD}Please select a city:${CLEARFORMAT}\\n"
-				printf '%s\n' "$LISTCITIES" | awk '{ printf "  %3d. %s\n", NR, $0 }'
-
-				printf "\\nChoose an option:  "
-				read -r city_choice
-
-				if [ "$city_choice" = "e" ]; then
-					exitmenu="exit"
-					break
-				elif ! Validate_Number "$city_choice"; then
-					printf "\\n\\e[31mPlease enter a valid number (1-%s)${CLEARFORMAT}\\n" "$COUNTCITIES"
-				else
-					if [ "$city_choice" -lt 1 ] || [ "$city_choice" -gt "$COUNTCITIES" ]; then
-						printf "\\n\\e[31mPlease enter a number between 1 and %s${CLEARFORMAT}\\n" "$COUNTCITIES"
-					else
-						cityname="$(printf '%s\n' "$LISTCITIES" | sed -n "${city_choice}p")"
-						cityid="$("provider_${vpnprovider_lc}_get_city_id" "$countryname" "$cityname")"
-						printf "\\n"
-						break
-					fi
-				fi
-			done
 		fi
 	fi
 	
@@ -1889,6 +2200,9 @@ ScriptHeader(){
 	printf "${BOLD}##          |_|                       |___/          ##${CLEARFORMAT}\\n"
 	printf "${BOLD}##                                                   ##${CLEARFORMAT}\\n"
 	printf "${BOLD}##                 %s on %-11s             ##${CLEARFORMAT}\\n" "$SCRIPT_VERSION" "$ROUTER_MODEL"
+	if [ -f "$SCRIPT_SOURCE_FILE" ]; then
+		printf "${BOLD}##                 from %-29s##${CLEARFORMAT}\\n" "$(cat "$SCRIPT_SOURCE_FILE")"
+	fi
 	printf "${BOLD}##                                                   ##${CLEARFORMAT}\\n"
 	printf "${BOLD}##       https://github.com/h0me5k1n/vpnmgr          ##${CLEARFORMAT}\\n"
 	printf "${BOLD}##                                                   ##${CLEARFORMAT}\\n"
@@ -2127,7 +2441,7 @@ Menu_UpdateVPN(){
 	printf "    - VPN provider (pick from list)\\n"
 	printf "    - type of VPN (pick from list)\\n"
 	printf "    - protocol (pick from list)\\n"
-	printf "    - country/city of VPN Server (pick from list)\\n"
+	printf "    - country/city of VPN Server (type to search)\\n"
 	printf "\\n"
 	printf "${BOLD}#########################################################${CLEARFORMAT}\\n"
 
@@ -2408,6 +2722,7 @@ Menu_Uninstall(){
 	SETTINGSFILE="/jffs/addons/custom_settings.txt"
 	sed -i '/vpnmgr_version_local/d' "$SETTINGSFILE"
 	sed -i '/vpnmgr_version_server/d' "$SETTINGSFILE"
+	sed -i '/vpnmgr_version_source/d' "$SETTINGSFILE"
 	
 	rm -rf "$SCRIPT_WEB_DIR" 2>/dev/null
 	rm -rf "$SCRIPT_DIR" 2>/dev/null
@@ -2648,13 +2963,13 @@ case "$1" in
 	;;
 	develop)
 		SCRIPT_BRANCH="develop"
-		SCRIPT_REPO="https://raw.githubusercontent.com/h0me5k1n/$SCRIPT_NAME/$SCRIPT_BRANCH"
+		Pin_Script_Repo "$SCRIPT_BRANCH"
 		Update_Version force
 		exit 0
 	;;
 	stable)
 		SCRIPT_BRANCH="main"
-		SCRIPT_REPO="https://raw.githubusercontent.com/h0me5k1n/$SCRIPT_NAME/$SCRIPT_BRANCH"
+		Pin_Script_Repo "$SCRIPT_BRANCH"
 		Update_Version force
 		exit 0
 	;;

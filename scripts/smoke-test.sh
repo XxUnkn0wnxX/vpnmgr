@@ -48,6 +48,12 @@ while IFS= read -r -d '' f; do
     SHELL_SCRIPTS+=("${f#${REPO_ROOT}/}")
 done < <(find "${REPO_ROOT}/providers" -name '*.sh' -print0 2>/dev/null | sort -z)
 
+# The API check runs under busybox ash in CI, so it is held to the same rules.
+SHELL_SCRIPTS+=(scripts/api-check.sh scripts/api-check-report.sh scripts/changelog-notes.sh)
+while IFS= read -r -d '' f; do
+    SHELL_SCRIPTS+=("${f#${REPO_ROOT}/}")
+done < <(find "${REPO_ROOT}/scripts/api-checks" -name '*.sh' -print0 2>/dev/null | sort -z)
+
 SHELLCHECK_AVAILABLE=false
 if command -v shellcheck &>/dev/null; then
     SHELLCHECK_AVAILABLE=true
@@ -180,6 +186,10 @@ fi
 
 # ---------------------------------------------------------------------------
 # Section 6: Provider status headers
+#
+# The status must be one of the known values. API_TESTED and ACTIVE both claim
+# that the provider's API has been checked, so each needs a check spec in
+# scripts/api-checks/ for the scheduled API check to keep that claim true.
 # ---------------------------------------------------------------------------
 section "6. Provider status headers"
 
@@ -188,7 +198,25 @@ if [[ -d "${REPO_ROOT}/providers" ]]; then
         pname=$(basename "$pfile" .sh | sed 's/^provider_//')
         if grep -q '^# Status:' "$pfile"; then
             status=$(grep '^# Status:' "$pfile" | head -1 | sed 's/^# Status: *//')
-            pass "${pname}: Status: ${status}"
+            status_word=$(awk '{print $1}' <<< "$status")
+            case "$status_word" in
+                ACTIVE|API_TESTED|UNTESTED|UNMAINTAINED|DEPRECATED|TEMPLATE)
+                    pass "${pname}: Status: ${status}"
+                    ;;
+                *)
+                    fail "${pname}: unknown status '${status_word}' (expected ACTIVE, API_TESTED, UNTESTED, UNMAINTAINED, DEPRECATED or TEMPLATE)"
+                    ;;
+            esac
+            case "$status_word" in
+                ACTIVE|API_TESTED)
+                    if [[ -f "${REPO_ROOT}/scripts/api-checks/${pname}.sh" ]] \
+                        && grep -q "^api_check_${pname}(){" "${REPO_ROOT}/scripts/api-checks/${pname}.sh"; then
+                        pass "${pname}: has API check spec (required for ${status_word})"
+                    else
+                        fail "${pname}: status ${status_word} requires scripts/api-checks/${pname}.sh defining api_check_${pname}()"
+                    fi
+                    ;;
+            esac
         else
             fail "${pname}: missing '# Status:' header"
         fi
@@ -474,6 +502,217 @@ for _saf_step in js providers; do
 done
 _SAF_FAIL=""
 rm -rf "$_SAF_DIR"
+
+# ---------------------------------------------------------------------------
+# Section 12: Searchable country/city picker (offline)
+#
+# The picker's matching (Picker_Filter) and key handling (Picker_HandleKey)
+# do no terminal I/O, so they can be driven here with key tokens. The raw
+# key reads and redraws in Picker_Select need a real terminal and are not
+# covered. Same extraction approach as section 10.
+# ---------------------------------------------------------------------------
+section "12. Searchable country/city picker (offline)"
+
+_PICK_EXTRACT="$(mktemp)"
+sed -n '/^Validate_Number(){/,/^}/p' "${REPO_ROOT}/vpnmgr.sh" > "$_PICK_EXTRACT"
+sed -n '/^### Searchable picker/,/^### End of searchable picker/p' "${REPO_ROOT}/vpnmgr.sh" >> "$_PICK_EXTRACT"
+# shellcheck source=/dev/null
+. "$_PICK_EXTRACT"
+rm -f "$_PICK_EXTRACT"
+
+_PICK_FIXTURE="$(printf '%s\n' "Albania" "Cote d'Ivoire" "New York" "Niger" "Nigeria" "St. John's (Antigua)" "Tunisia" "United Arab Emirates" "United Kingdom" "United States")"
+
+assert_filter() {
+    local desc="$1" query="$2" expected="$3" got
+    PICK_QUERY="$query"
+    got="$(printf '%s\n' "$_PICK_FIXTURE" | Picker_Filter | paste -sd'|' -)"
+    if [[ "$got" == "$expected" ]]; then
+        pass "$desc"
+    else
+        fail "$desc (expected '${expected}', got '${got}')"
+    fi
+}
+
+# pick_run allow_blank token...  — a token is a key name, or a single character to type
+pick_run() {
+    PICK_LIST="$_PICK_FIXTURE"
+    PICK_ALLOW_BLANK="$1"
+    PICK_QUERY=""; PICK_MSG=""; PICK_DONE=""; PICK_RESULT=""
+    shift
+    Picker_Refilter
+    local tok
+    for tok in "$@"; do
+        case "$tok" in
+            TAB|BTAB|UP|DOWN|ENTER|ESC|EOF|BS) Picker_HandleKey "$tok" ;;
+            *) Picker_HandleKey CHAR "$tok" ;;
+        esac
+    done
+}
+
+assert_pick() {
+    local desc="$1" field="$2" expected="$3" got
+    case "$field" in
+        result) got="${PICK_DONE}:${PICK_RESULT}" ;;
+        query)  got="$PICK_QUERY" ;;
+        sel)    got="$PICK_SEL" ;;
+        open)   got="${PICK_DONE:-open}:${PICK_MSG%% *}" ;;
+    esac
+    if [[ "$got" == "$expected" ]]; then
+        pass "$desc"
+    else
+        fail "$desc (expected '${expected}', got '${got}')"
+    fi
+}
+
+assert_filter "substring anywhere, list order kept" "uni" "Tunisia|United Arab Emirates|United Kingdom|United States"
+assert_filter "more characters narrow the list"    "united k" "United Kingdom"
+assert_filter "case-insensitive"                   "NEW YORK" "New York"
+assert_filter "spaces ignored"                     "newyork"  "New York"
+assert_filter "punctuation ignored"                "st johns" "St. John's (Antigua)"
+assert_filter "apostrophe in name ignored"         "cote d"   "Cote d'Ivoire"
+assert_filter "regex characters are literal"       "n.w"      ""
+assert_filter "backslash is literal"               'n\w'      ""
+assert_filter "no match gives empty list"          "atlantis" ""
+assert_filter "empty query returns everything"     ""         "$(printf '%s\n' "$_PICK_FIXTURE" | paste -sd'|' -)"
+
+pick_run false u n i TAB TAB ENTER
+assert_pick "Tab moves down the matches" result "ok:United Arab Emirates"
+pick_run false u n i TAB TAB TAB TAB TAB
+assert_pick "Tab wraps to the first match" sel "1"
+assert_pick "Tab leaves the query unchanged" query "uni"
+pick_run false u n i BTAB ENTER
+assert_pick "Shift+Tab wraps to the last match" result "ok:United States"
+pick_run false TAB ENTER
+assert_pick "Tab on a blank query browses the full list" result "ok:Albania"
+pick_run false DOWN DOWN UP ENTER
+assert_pick "arrow keys move the highlight" result "ok:Albania"
+pick_run false u n i TAB TAB t e d
+assert_pick "typing after Tab edits the query" query "united"
+assert_pick "typing after Tab clears the highlight" sel "0"
+pick_run false u n i x BS TAB ENTER
+assert_pick "Backspace broadens the matches" result "ok:Tunisia"
+pick_run false t u n ENTER
+assert_pick "Enter accepts a unique partial match" result "ok:Tunisia"
+pick_run false n i g e r ENTER
+assert_pick "Enter accepts an exact name that prefixes another" result "ok:Niger"
+pick_run false u n i ENTER
+assert_pick "Enter on an ambiguous query stays open" open "open:Multiple"
+pick_run false z z ENTER
+assert_pick "Enter on an unmatched query stays open" open "open:No"
+pick_run false ENTER
+assert_pick "blank Enter is rejected when a choice is required" open "open:A"
+pick_run true ENTER
+assert_pick "blank Enter means no preference when allowed" result "ok:"
+pick_run true TAB ENTER
+assert_pick "a highlighted name is chosen even with a blank query" result "ok:Albania"
+pick_run true TAB BS ENTER
+assert_pick "editing the query drops the highlight before a blank Enter" result "ok:"
+pick_run false u n ESC
+assert_pick "Esc cancels" result "cancel:"
+
+# ---------------------------------------------------------------------------
+# Section 13: Install source recording (offline)
+#
+# "vpnmgr develop" pins the install to the commit the branch resolves to and
+# records "<branch>@<commit>" for the CLI header and WebUI; installs from main
+# clear it. Same extraction approach as section 10, with curl stubbed and the
+# custom settings file redirected to a temp file.
+# ---------------------------------------------------------------------------
+section "13. Install source recording (offline)"
+
+_IS_DIR="$(mktemp -d)"
+_IS_EXTRACT="$(mktemp)"
+for _is_fn in Set_Version_Custom_Settings Pin_Script_Repo Record_Install_Source; do
+    sed -n "/^${_is_fn}(){/,/^}/p" "${REPO_ROOT}/vpnmgr.sh"
+done | sed "s|/usr/sbin/curl|_is_curl|g; s|/jffs/addons/custom_settings.txt|${_IS_DIR}/custom_settings.txt|g" > "$_IS_EXTRACT"
+# shellcheck source=/dev/null
+. "$_IS_EXTRACT"
+rm -f "$_IS_EXTRACT"
+
+SCRIPT_NAME="vpnmgr"
+SCRIPT_SOURCE_FILE="${_IS_DIR}/.install_source"
+_IS_SETTINGS="${_IS_DIR}/custom_settings.txt"
+_IS_REPLY=""
+_is_curl() { printf '%s' "$_IS_REPLY"; }
+Print_Output() { :; }
+printf 'vpnmgr_version_local v9.9.9\nother_addon_setting 1\n' > "$_IS_SETTINGS"
+
+_IS_REPLY="0123456789abcdef0123456789abcdef01234567"
+Pin_Script_Repo develop
+assert_eq "Pin_Script_Repo: downloads pinned to the resolved commit" \
+    "https://raw.githubusercontent.com/h0me5k1n/vpnmgr/0123456789abcdef0123456789abcdef01234567" "$SCRIPT_REPO"
+assert_eq "Pin_Script_Repo: source is branch@short commit" "develop@0123456" "$SCRIPT_SOURCE"
+
+Record_Install_Source
+assert_eq "Record_Install_Source: develop install recorded for the CLI header" \
+    "develop@0123456" "$(cat "$SCRIPT_SOURCE_FILE" 2>/dev/null)"
+assert_eq "Record_Install_Source: develop install recorded for the WebUI" \
+    "vpnmgr_version_source develop@0123456" "$(grep '^vpnmgr_version_source ' "$_IS_SETTINGS")"
+assert_eq "Record_Install_Source: other settings untouched" \
+    "2" "$(grep -c '^vpnmgr_version_local v9.9.9$\|^other_addon_setting 1$' "$_IS_SETTINGS")"
+
+# The WebUI settings merge skips keys containing "version"; the source key
+# must be one of them or it would be merged into the config and deleted.
+if grep 'vpnmgr_' "$_IS_SETTINGS" | grep -v 'version' | grep -q 'source'; then
+    fail "vpnmgr_version_source would be picked up by Conf_FromSettings"
+else
+    pass "vpnmgr_version_source is left alone by Conf_FromSettings"
+fi
+
+Record_Install_Source
+assert_eq "Record_Install_Source: re-recording does not duplicate the setting" \
+    "1" "$(grep -c '^vpnmgr_version_source ' "$_IS_SETTINGS")"
+
+_IS_REPLY='{"message": "API rate limit exceeded"}'
+Pin_Script_Repo develop
+assert_eq "Pin_Script_Repo: lookup failure falls back to the branch" \
+    "https://raw.githubusercontent.com/h0me5k1n/vpnmgr/develop" "$SCRIPT_REPO"
+assert_eq "Pin_Script_Repo: lookup failure is shown as unknown" "develop@unknown" "$SCRIPT_SOURCE"
+
+_IS_REPLY="89abcdef0123456789abcdef0123456789abcdef"
+Pin_Script_Repo main
+Record_Install_Source
+if [[ ! -f "$SCRIPT_SOURCE_FILE" ]] && ! grep -q '^vpnmgr_version_source ' "$_IS_SETTINGS"; then
+    pass "Record_Install_Source: install from main clears the record"
+else
+    fail "Record_Install_Source: install from main left a record behind"
+fi
+
+SCRIPT_SOURCE=""
+printf 'develop@0123456\n' > "$SCRIPT_SOURCE_FILE"
+Record_Install_Source
+if [[ ! -f "$SCRIPT_SOURCE_FILE" ]]; then
+    pass "Record_Install_Source: plain update (no pinned source) clears the record"
+else
+    fail "Record_Install_Source: plain update left a stale record"
+fi
+rm -rf "$_IS_DIR"
+
+# ---------------------------------------------------------------------------
+# Section 14: Changelog
+#
+# The release workflow publishes the current SCRIPT_VERSION's CHANGELOG.md
+# section as the GitHub release notes, so that section must exist before the
+# version bump reaches main.
+# ---------------------------------------------------------------------------
+section "14. Changelog"
+
+_cl_version=$(grep -m1 'SCRIPT_VERSION=' "${REPO_ROOT}/vpnmgr.sh" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+')
+if _cl_notes=$(sh "${REPO_ROOT}/scripts/changelog-notes.sh" "$_cl_version" 2>&1); then
+    pass "CHANGELOG.md has entries for ${_cl_version}"
+    if grep -q '^## ' <<< "$_cl_notes"; then
+        fail "CHANGELOG.md: ${_cl_version} notes run into another version's section"
+    else
+        pass "CHANGELOG.md: ${_cl_version} notes stop at the next section"
+    fi
+else
+    fail "CHANGELOG.md has no entries for ${_cl_version} — add them before bumping SCRIPT_VERSION"
+fi
+if grep -q '^## Unreleased$' "${REPO_ROOT}/CHANGELOG.md"; then
+    pass "CHANGELOG.md has an Unreleased section"
+else
+    fail "CHANGELOG.md is missing its '## Unreleased' section"
+fi
 
 # ---------------------------------------------------------------------------
 # Summary
