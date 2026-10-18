@@ -105,6 +105,7 @@ jobs:
           printf '%s' "$PROVIDER" > result/provider
           printf '%s' "$STATUS" > result/status
           printf '%s' "$rc" > result/rc
+          printf '%s' "$AC_FORCE_FAIL" > result/forced
           echo "rc=$rc" >> "$GITHUB_OUTPUT"
           {
             echo "### $PROVIDER ($STATUS) — exit $rc"

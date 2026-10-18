@@ -8,8 +8,9 @@
 #   sh scripts/api-check-report.sh <results-dir>
 #
 # <results-dir> holds one directory per provider (the downloaded workflow
-# artifacts), each containing the files provider, status, rc and output.txt
-# written by the check job.
+# artifacts), each containing the files provider, status, rc, forced and
+# output.txt written by the check job. forced is "true" for a run started
+# with force_fail, whose failure is deliberate.
 #
 # Per provider:
 #   rc 0  close any open issue for it
@@ -108,6 +109,7 @@ for _acr_dir in "$AC_RESULTS_DIR"/*/; do
 	_acr_provider="$(cat "${_acr_dir}provider")"
 	_acr_status="$(cat "${_acr_dir}status")"
 	_acr_rc="$(cat "${_acr_dir}rc")"
+	_acr_forced="$(cat "${_acr_dir}forced" 2>/dev/null)"
 	_acr_failing="API check failing: $_acr_provider"
 	_acr_unreachable="API check unreachable: $_acr_provider"
 
@@ -120,8 +122,12 @@ for _acr_dir in "$AC_RESULTS_DIR"/*/; do
 		1)
 			case "$_acr_status" in
 				ACTIVE|API_TESTED)
-					_acr_raise "$_acr_failing" "$_acr_provider" "$_acr_status" \
-						"The scheduled API check found that an endpoint the \`$_acr_provider\` provider depends on no longer behaves as the provider expects. Routers using this provider may be unable to select a server or apply a config. If this cannot be fixed promptly, set the provider's \`# Status:\` to \`UNTESTED\`." \
+					if [ "$_acr_forced" = "true" ]; then
+						_acr_intro="**This is a test of the alerting, not a real failure.** The run was started manually with \`force_fail\`, which makes every provider fail on purpose. The check output below shows the real checks for \`$_acr_provider\`. The next normal run closes this issue."
+					else
+						_acr_intro="The API check found that an endpoint the \`$_acr_provider\` provider depends on no longer behaves as the provider expects. Routers using this provider may be unable to select a server or apply a config. If this cannot be fixed promptly, set the provider's \`# Status:\` to \`UNTESTED\`."
+					fi
+					_acr_raise "$_acr_failing" "$_acr_provider" "$_acr_status" "$_acr_intro" \
 						"${_acr_dir}output.txt"
 					;;
 				*)
