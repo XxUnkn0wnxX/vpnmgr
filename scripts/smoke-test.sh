@@ -719,6 +719,17 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Section 15: Firmware compatibility consumers
+# ---------------------------------------------------------------------------
+section "15. Firmware compatibility consumers (offline)"
+
+if bash "${REPO_ROOT}/scripts/firmware-compat-test.sh"; then
+    pass "Firmware compatibility: routing, retry and custom-options consumers"
+else
+    fail "Firmware compatibility: routing, retry and custom-options consumers"
+fi
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 TOTAL=$((PASS + FAIL))

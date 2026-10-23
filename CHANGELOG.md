@@ -16,6 +16,7 @@ empty "## Unreleased" heading; the smoke test rejects one.
 ### Fixed
 
 - Load Merlin's `httpApi.js` before `client_function.js` so the VPN Manager page can initialize on firmware versions that defer loading the API.
+- Check the firmware family before legacy build thresholds so Merlin 3006 uses valid retry settings and updates managed custom options in the active file instead of leaving imported server-name restrictions behind.
 
 ## v3.4.0 (2026-10-18)
 
