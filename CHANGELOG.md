@@ -11,6 +11,12 @@ there). At release it is renamed to the version and date. Never leave an
 empty "## Unreleased" heading; the smoke test rejects one.
 -->
 
+## Unreleased
+
+### Fixed
+
+- Load Merlin's `httpApi.js` before `client_function.js` so the VPN Manager page can initialize on firmware versions that defer loading the API.
+
 ## v3.4.0 (2026-10-18)
 
 ### Added
