@@ -730,6 +730,17 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Section 16: CLI WebUI URL lookup (offline)
+# ---------------------------------------------------------------------------
+section "16. CLI WebUI URL lookup (offline)"
+
+if bash "${REPO_ROOT}/scripts/webui-url-test.sh"; then
+    pass "Get_WebUI_URL: resolves the active menu-tree entry and formats its URL"
+else
+    fail "Get_WebUI_URL: resolves the active menu-tree entry and formats its URL"
+fi
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 TOTAL=$((PASS + FAIL))

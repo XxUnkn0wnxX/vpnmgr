@@ -508,7 +508,8 @@ Get_WebUI_URL(){
 	urldomain=""
 	urlport=""
 
-	urlpage="$(sed -nE "/$SCRIPT_NAME/ s/.*url\: \"(user[0-9]+\.asp)\".*/\1/p" /tmp/menuTree.js)"
+	# Read the served tree; the /tmp working copy can differ from the active mount.
+	urlpage="$(sed -nE "/$SCRIPT_NAME/ s/.*url\: \"(user[0-9]+\.asp)\".*/\1/p" /www/require/modules/menuTree.js)"
 	if [ "$(nvram get http_enable)" -eq 1 ]; then
 		urlproto="https"
 	else
