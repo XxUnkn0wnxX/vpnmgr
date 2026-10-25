@@ -10,7 +10,7 @@ mkdir -p "$_FW_TEST_DIR/openvpn"
 
 for fn in Firmware_Number_Check Firmware_Build_Before Validate_Number \
     getIP getPort getCipher getAuthDigest getClientCA getConnectState \
-    UpdateVPNConfig SetVPNCustomSettings; do
+    UpdateVPNConfig SetVPNCustomSettings Write_VPNCustomOptions Strip_Stale_X509Name; do
     sed -n "/^${fn}(){/,/^}/p" "$FW_TEST_SOURCE"
 done | sed -e 's@/jffs/openvpn/@"$_FW_TEST_DIR"/openvpn/@g' \
     -e 's@/bin/uname@uname@g' > "$_FW_TEST_DIR/functions.sh"
@@ -35,6 +35,7 @@ nvram() {
                 vpn_client1_state) printf '2\n' ;;
                 vpn_client1_rgw) printf '0\n' ;;
                 vpn_client1_username|vpn_client1_password) printf 'fixture\n' ;;
+                vpn_client1_cust2) printf '%s\n' "$FW_TEST_CUST2" ;;
                 *) die "unexpected NVRAM read: $2" ;;
             esac
             ;;
@@ -81,7 +82,7 @@ head() {
 }
 
 run_case() (
-    local label="$1" route="$4" retry_value="$5" storage="$6" managed="$7"
+    local label="$1" route="$4" retry_value="$5" storage="$6" managed="$7" pin="${8:-pin}"
     # These globals are inputs/outputs of the extracted production functions.
     # shellcheck disable=SC2034
     FW_TEST_FAMILY="$2" FW_TEST_BUILD="$3" SCRIPT_CONF="$_FW_TEST_DIR/config" \
@@ -108,9 +109,16 @@ verify-x509-name CN=au1123.nordvpn.com
 <ca>
 fixture-ca
 </ca>'
-    printf 'verify-x509-name CN=au1164.nordvpn.com\nremote-cert-tls server\n' \
-        > "$_FW_TEST_DIR/openvpn/vpn_client1_custom3"
+    if [[ "$pin" == pin ]]; then
+        printf 'verify-x509-name CN=au1164.nordvpn.com\nremote-cert-tls server\n' \
+            > "$_FW_TEST_DIR/openvpn/vpn_client1_custom3"
+    else
+        printf 'remote-cert-tls server\n' > "$_FW_TEST_DIR/openvpn/vpn_client1_custom3"
+    fi
     cp "$_FW_TEST_DIR/openvpn/vpn_client1_custom3" "$_FW_TEST_DIR/imported-options"
+    # Legacy firmware keeps the same block base64-encoded in NVRAM.
+    # shellcheck disable=SC2034
+    FW_TEST_CUST2="$(printf '%s' "$(cat "$_FW_TEST_DIR/imported-options")" | openssl base64 -A)"
 
     UpdateVPNConfig unattended 1 2
 
@@ -122,9 +130,18 @@ fixture-ca
     esac
     assert_eq 'fixture-ca' "$(cat "$FW_TEST_CA_LOG")" "$label selected profile CA"
     assert_eq '1' "$(cat "$FW_TEST_RESTART_LOG")" "$label fake restart boundary"
-    if [[ "$managed" == false ]]; then
-        cmp -s "$_FW_TEST_DIR/imported-options" "$_FW_TEST_DIR/openvpn/vpn_client1_custom3" || die "$label changed user-managed options"
+    if [[ "$managed" == false && "$storage" == file ]]; then
+        # Only the stale certificate-name pin goes; everything else stays byte-for-byte.
+        grep -v '^verify-x509-name ' "$_FW_TEST_DIR/imported-options" > "$_FW_TEST_DIR/expected-options" || true
+        cmp -s "$_FW_TEST_DIR/expected-options" "$_FW_TEST_DIR/openvpn/vpn_client1_custom3" || die "$label changed user-managed options beyond the pin"
         ! grep -Eq '^vpn_client1_(cust2|cust21|cust22|custom)=' "$FW_TEST_NVRAM_LOG" || die "$label wrote legacy options"
+    elif [[ "$managed" == false ]]; then
+        cmp -s "$_FW_TEST_DIR/imported-options" "$_FW_TEST_DIR/openvpn/vpn_client1_custom3" || die "$label changed unused modern storage"
+        if [[ "$pin" == pin ]]; then
+            grep -qx "vpn_client1_cust2=$(printf 'remote-cert-tls server' | openssl base64 -A)" "$FW_TEST_NVRAM_LOG" || die "$label kept the legacy pin"
+        else
+            ! grep -Eq '^vpn_client1_(cust2|cust21|cust22|custom)=' "$FW_TEST_NVRAM_LOG" || die "$label rewrote legacy options without a pin"
+        fi
     elif [[ "$storage" == file ]]; then
         grep -qx 'remote-cert-tls server' "$_FW_TEST_DIR/openvpn/vpn_client1_custom3" || die "$label lost server-role verification"
         grep -qx 'auth-nocache' "$_FW_TEST_DIR/openvpn/vpn_client1_custom3" || die "$label omitted managed options"
@@ -145,6 +162,9 @@ run_case '388.12 existing firmware behavior' 3.0.0.4 388.12 none 0 file true
 run_case '3006.102.9 managed imported profile' 3.0.0.6 102.9 none 0 file true
 run_case 'missing family retains legacy comparison' '' 384.18 second -1 legacy true
 run_case 'unknown family retains build comparison' unknown 388.12 none 0 file true
-run_case '388.12 user-managed options preserved' 3.0.0.4 388.12 none 0 file false
-run_case '3006.102.9 user-managed options preserved' 3.0.0.6 102.9 none 0 file false
-printf 'All 10 firmware consumer cases passed.\n'
+run_case '388.12 user-managed stale pin removed' 3.0.0.4 388.12 none 0 file false
+run_case '3006.102.9 user-managed stale pin removed' 3.0.0.6 102.9 none 0 file false
+run_case '3006.102.9 user-managed options without a pin untouched' 3.0.0.6 102.9 none 0 file false nopin
+run_case '384.19 user-managed legacy stale pin removed' 3.0.0.4 384.19 second 0 legacy false
+run_case '384.19 user-managed legacy options without a pin untouched' 3.0.0.4 384.19 second 0 legacy false nopin
+printf 'All 13 firmware consumer cases passed.\n'

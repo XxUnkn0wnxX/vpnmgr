@@ -1355,6 +1355,8 @@ UpdateVPNConfig(){
 
 	if [ "$(grep "vpn${VPN_NO}_customsettings" "$SCRIPT_CONF" | cut -f2 -d"=")" = "true" ]; then
 		SetVPNCustomSettings "$VPN_NO"
+	else
+		Strip_Stale_X509Name "$VPN_NO"
 	fi
 
 	if [ "$ISUNATTENDED" = "true" ]; then
@@ -2169,22 +2171,50 @@ tun-mtu-extra 32
 mssfix 1450"
 	fi
 	
+	Write_VPNCustomOptions "$VPN_NO" "$vpncustomoptions"
+}
+
+Write_VPNCustomOptions(){
 	if Firmware_Build_Before 386.3; then
-		vpncustomoptionsbase64="$(echo "$vpncustomoptions" | head -c -1 | openssl base64 -A)"
+		vpncustomoptionsbase64="$(echo "$2" | head -c -1 | openssl base64 -A)"
 		
 		if [ "$(/bin/uname -m)" = "aarch64" ]; then
-			nvram set vpn_client"$VPN_NO"_cust2="$(echo "$vpncustomoptionsbase64" | cut -c0-255)"
-			nvram set vpn_client"$VPN_NO"_cust21="$(echo "$vpncustomoptionsbase64" | cut -c256-510)"
-			nvram set vpn_client"$VPN_NO"_cust22="$(echo "$vpncustomoptionsbase64" | cut -c511-765)"
+			nvram set vpn_client"$1"_cust2="$(echo "$vpncustomoptionsbase64" | cut -c0-255)"
+			nvram set vpn_client"$1"_cust21="$(echo "$vpncustomoptionsbase64" | cut -c256-510)"
+			nvram set vpn_client"$1"_cust22="$(echo "$vpncustomoptionsbase64" | cut -c511-765)"
 		elif [ "$(uname -o)" = "ASUSWRT-Merlin" ]; then
-			nvram set vpn_client"$VPN_NO"_cust2="$vpncustomoptionsbase64"
+			nvram set vpn_client"$1"_cust2="$vpncustomoptionsbase64"
 		else
-			nvram set vpn_client"$VPN_NO"_custom="$vpncustomoptions"
+			nvram set vpn_client"$1"_custom="$2"
 		fi
 		nvram commit
 	else
-		printf "%s" "$vpncustomoptions" > /jffs/openvpn/vpn_client"$VPN_NO"_custom3
+		printf "%s" "$2" > /jffs/openvpn/vpn_client"$1"_custom3
 	fi
+}
+
+# With custom settings off the user's block is kept, but an imported profile's
+# verify-x509-name pins the old server's certificate name and breaks the switch.
+Strip_Stale_X509Name(){
+	_ssx_pattern='^[[:space:]]*verify-x509-name[[:space:]]'
+	if Firmware_Build_Before 386.3; then
+		if [ "$(/bin/uname -m)" = "aarch64" ]; then
+			_ssx_opts="$(printf '%s' "$(nvram get vpn_client"$1"_cust2)$(nvram get vpn_client"$1"_cust21)$(nvram get vpn_client"$1"_cust22)" | openssl base64 -d -A)"
+		elif [ "$(uname -o)" = "ASUSWRT-Merlin" ]; then
+			_ssx_opts="$(printf '%s' "$(nvram get vpn_client"$1"_cust2)" | openssl base64 -d -A)"
+		else
+			_ssx_opts="$(nvram get vpn_client"$1"_custom)"
+		fi
+		printf '%s\n' "$_ssx_opts" | grep -q "$_ssx_pattern" || return 0
+		Write_VPNCustomOptions "$1" "$(printf '%s\n' "$_ssx_opts" | grep -v "$_ssx_pattern")"
+	else
+		_ssx_file=/jffs/openvpn/vpn_client"$1"_custom3
+		if [ ! -f "$_ssx_file" ] || ! grep -q "$_ssx_pattern" "$_ssx_file"; then
+			return 0
+		fi
+		sed -i "/$_ssx_pattern/d" "$_ssx_file"
+	fi
+	Print_Output true "Removed verify-x509-name from VPN client $1 custom configuration - it pinned a previous server's certificate name" "$WARN"
 }
 
 PressEnter(){
