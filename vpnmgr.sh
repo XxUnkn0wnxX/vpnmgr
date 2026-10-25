@@ -1530,7 +1530,7 @@ ScheduleVPN(){
 	
 	Print_Output true "Configuring scheduled update for VPN client $VPN_NO"
 	
-	if cru l | grep -q "${SCRIPT_NAME}${VPN_NO}"; then
+	if cru l | grep -q "${SCRIPT_NAME}_VPN${VPN_NO}"; then
 		cru d "${SCRIPT_NAME}_VPN${VPN_NO}"
 	fi
 	
@@ -1561,7 +1561,7 @@ CancelScheduleVPN(){
 	
 	sed -i 's/^vpn'"$VPN_NO"'_schenabled.*$/vpn'"$VPN_NO"'_schenabled=false/' "$SCRIPT_CONF"
 	
-	if grep -q "${SCRIPT_NAME}_VPN${VPN_NO}" /jffs/scripts/services-start; then
+	if [ -f /jffs/scripts/services-start ] && grep -q "${SCRIPT_NAME}_VPN${VPN_NO}" /jffs/scripts/services-start; then
 		sed -i "/${SCRIPT_NAME}_VPN${VPN_NO}/d" /jffs/scripts/services-start
 	fi
 	
@@ -2745,6 +2745,13 @@ Menu_Uninstall(){
 	Auto_Cron delete 2>/dev/null
 	Auto_Startup delete 2>/dev/null
 	Auto_ServiceEvent delete 2>/dev/null
+	
+	# Per-client schedules are separate cron jobs and services-start lines
+	for i in 1 2 3 4 5; do
+		if cru l | grep -q "${SCRIPT_NAME}_VPN${i}" || { [ -f /jffs/scripts/services-start ] && grep -q "${SCRIPT_NAME}_VPN${i}" /jffs/scripts/services-start; }; then
+			CancelScheduleVPN "$i"
+		fi
+	done
 	
 	LOCKFILE=/tmp/addonwebui.lock
 	FD=386
