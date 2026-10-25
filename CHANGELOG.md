@@ -20,6 +20,7 @@ empty "## Unreleased" heading; the smoke test rejects one.
 - **Managed OpenVPN custom options:** regenerate VPNMgr's managed options in the active per-client `custom3` file on Merlin 3006 when custom settings are enabled. This prevents stale imported server-name restrictions from blocking server changes while retaining CA validation and `remote-cert-tls server`. User-managed custom options remain unchanged when VPNMgr custom settings are disabled. (#62)
 - **CLI WebUI URL:** read Merlin's active menu tree to resolve the registered page number, preventing false `WebUI page not found` messages or outdated links when the temporary menu copy differs from the active menu. (#62)
 - **Server switching with custom settings disabled:** remove a `verify-x509-name` line from the user's custom options when VPNMgr updates the client. An imported profile's line pins the previous server's certificate name, so the new server failed the TLS handshake. Everything else in the block is left as it was, and CA validation still applies.
+- **Uninstall now removes per-client scheduled updates.** The `vpnmgr_VPN1`–`vpnmgr_VPN5` cron jobs and the `services-start` lines that recreate them at boot were left behind, pointing at the deleted script.
 
 The #62 fixes were verified on ASUS RT-BE88U with Merlin `3006.102.9` and GT-AX11000 with Merlin `388.12_2`.
 
