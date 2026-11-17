@@ -31,9 +31,9 @@
 ### Start of script variables ###
 readonly SCRIPT_NAME="vpnmgr"
 readonly SCRIPT_VERSION="v3.4.1"
-SCRIPT_BRANCH="main"
-SCRIPT_REPOSITORY="h0me5k1n/vpnmgr"
-SCRIPT_BRANCH_OVERRIDE=""
+SCRIPT_BRANCH="develop"
+SCRIPT_REPOSITORY="XxUnkn0wnxX/vpnmgr"
+SCRIPT_BRANCH_OVERRIDE="develop"
 SCRIPT_REPO="https://raw.githubusercontent.com/$SCRIPT_REPOSITORY/$SCRIPT_BRANCH"
 SCRIPT_REVISION=""
 SCRIPT_UPDATE_READY="false"
